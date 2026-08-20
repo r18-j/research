@@ -22,7 +22,7 @@ library("ggplot2")
 
 There are a few approaches to measuring market impact:
 
-- study the market impact of a single trade, or
+- study the market impact of a single trade or
 - the market impact associated with entire execution processes.
 
 Unfortunately, the data needed to identify traders is not provided by in TAQ data and is only usually held in private datasets with banks like Citigroup, ....
@@ -38,12 +38,12 @@ Load **BTC** (Bitcoin) **Futures** from the **CME Globex MDP 3.0** dataset.
 - `rtype`: The record type. Each schema corresponds with a single rtype value.
 - `order_id`: The order ID assigned at the venue.
 - `publisher_id`: The publisher ID assigned by Databento, which denotes dataset and venue.
-- `flags`: A bit field indicating event end, message characteristics, and data quality.
+- `flags`: A bit field indicating event end, message characteristics and data quality.
 - `instrument_id`: The numeric instrument ID.
 - `ts_in_delta`: The matching-engine-sending timestamp expressed as the number of nanoseconds before ts_recv.
-- `action`: The event action. Can be **A**dd, **C**ancel, **M**odify, clea**R** book, **T**rade, **F**ill, or **N**one.
+- `action`: The event action. Can be **A**dd, **C**ancel, **M**odify, clea**R** book, **T**rade, **F**ill or **N**one.
 - `sequence`: The message sequence number assigned at the venue.
-- `side`: The side that initiates the event. Can be **A**sk for a sell order (or sell aggressor in a trade), **B**id for a buy order (or buy aggressor in a trade), or **N**one where no side is specified by the original source.
+- `side`: The side that initiates the event. Can be **A**sk for a sell order (or sell aggressor in a trade), **B**id for a buy order (or buy aggressor in a trade) or **N**one where no side is specified by the original source.
 - `symbol`: The requested symbol for the instrument.
 - `price`: The order price expressed as a signed integer where every 1 unit corresponds to 1e-9, i.e. 1/1,000,000,000 or 0.000000001.
 
@@ -79,7 +79,7 @@ These actions indicate that an execution has taken place. Crucially, they do not
 
 We could study the market impact of single trades and how the price formation process evolves following buyer-/seller- initiated trades. 
 Generally, there is little information in the volume of a single trade, because the size of a single trade is mainly driven by the available liquidity in the limit order books. 
-Furthermore, beyond the immediate impact and measures of the impact of a trade after a given period of time, it is very difficult to know, with market data only, whether the impact comes from that specific trade or from a collection of trades. For example, if there were 1000 uninterrupted large sell orders, and the market dropped significantly, was it due to the 1000^th^ trade, or the collection of all 1000 trades? (Obviously, all 1000 trades played a part.)
+Furthermore, beyond the immediate impact and measures of the impact of a trade after a given period of time, it is very difficult to know, with market data only, whether the impact comes from that specific trade or from a collection of trades. For example, if there were 1000 uninterrupted large sell orders and the market dropped significantly, was it due to the 1000^th^ trade or the collection of all 1000 trades? (Obviously, all 1000 trades played a part.)
 
 The law of large numbers cannot be used because the side of a trade is autocorrelated; buyer (resp. seller) initiated trades are usually followed by more buy (resp. sell) initiated trades. 
 
@@ -89,7 +89,7 @@ The law of large numbers cannot be used because the side of a trade is autocorre
 
 > Hypothesis: *there should not be any price change (on average) if the volume of buyer and seller initiated trades were equal.* 
 
-A way to estimate market impact is to consider over fixed time intervals, the difference between the volume or number of buyer and seller initiated trades, and use it as an explanatory variable for the price change over the same period. This can either be the proportion of seller initiated trades, or the difference between the quote or base quantities, normalized by the total base or quote quantity. (`BTCUSDT` has base BTC and quote USDT.)
+A way to estimate market impact is to consider over fixed time intervals, the difference between the volume or number of buyer and seller initiated trades and use it as an explanatory variable for the price change over the same period. This can either be the proportion of seller initiated trades or the difference between the quote or base quantities, normalized by the total base or quote quantity. (`BTCUSDT` has base BTC and quote USDT.)
 
 
 
@@ -97,7 +97,7 @@ A way to estimate market impact is to consider over fixed time intervals, the di
 
 ## Orderflow imbalance over 5 minute intervals
 
-Measure the trade imbalances and micro-price changes over five minute windows, and fit to a power function.
+Measure the trade imbalances and micro-price changes over five minute windows and fit to a power function.
 
 ```{r}
 #| echo: false
