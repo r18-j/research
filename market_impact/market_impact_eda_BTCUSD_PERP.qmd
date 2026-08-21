@@ -1,5 +1,5 @@
 ---
-title: "Market Impact on BTCUSDT Futures Market"
+title: "Market Impact on ETHUSDT Spot Market"
 format: html
 author: "Raj Kundi"
 date: "08/20/2026"
@@ -12,135 +12,83 @@ toc: true
 #| include: false
 #| paged-print: false
 
+# load libraries
 library("dplyr")
 library("tidyr")
 library("lubridate")
 library("tibble")
 library("knitr")
 library("ggplot2")
-```
+library(data.table)
 
-# BTCUSDT perpetual market
-
-## Binance historical data
-
-```{r}
-#| message: false
-#| warning: false
-#| include: false
-#| paged-print: false
-
-trades <- read.csv("../data/BTCUSDT-trades-2026-08-16.csv")
+# Load data
+trades <- read.csv("../data/ETHUSDT-trades-2026-07.csv")
 trades$ts <- as_datetime(trades$time/1000)
 trades <- arrange(trades, id)
-bookdepth <- read.csv("../data/BTCUSDT-bookdepth-2026-08-16.csv")
-metrics <- read.csv("../data/BTCUSDT-metrics-2026-08-16.csv")
 ```
 
 
-| Attribute/field | data |
-|----|----|
-| `id` | Unique identifier for each trade. |
-| `price` | Price the trade happened at. |
-| `qty`, `base_qty` | Quantity traded. |
-| `time` | Timestamp the trade happened at. |
-| `is_buyer_maker` | Was the buyer the passive trader, or was a bid limit order lifted. |
+# Estimating market impact
 
+R. Almgren, C. Thum, E. Hauptmann, and H. Li. Direct estimation of equity market impact. Risk, 18(7):58-62, 2005
 
-## Generate orderflow imbalance measurements and estimate market impact parameters
+## Introduction
 
-We take buy or sell from the prespective of the aggresive trader placing market orders.
+Transaction costs have a big impact on investment performance (i.e. Freyre-Sanders, Guobuzaite and Byrne (2004)). It also impacts unwinding positions. Costs generally fall into two categories:
+
+- *Direct costs* are commissions and fees that are explicitly stated and easily measured. 
+- *Indirect costs* are costs that are not explicitly stated. For large trades, the most important component of these is the impact of a trader's own actions on the market.
+
+## Data
 
 ```{r}
-#| echo: false
-#| paged-print: true
+library(data.table)
+library(lubridate)
 
-generate_imbalance_bars <- function(data, timescale) {
-  data |> mutate(
-  bar = floor_date(ts, "5 minutes"),
-  buy_qty = if_else(is_buyer_maker == "true", qty, 0),
-  sell_qty = if_else(is_buyer_maker == "false", qty, 0),
-  buy_quote_qty = if_else(is_buyer_maker == "true", quote_qty, 0),
-  sell_quote_qty = if_else(is_buyer_maker == "false", quote_qty, 0),
-  price = price
-) |>
-  group_by(bar) |>
-  summarise(
-    n_trades = n(),
-    buy_qty = sum(buy_qty),
-    buy_quote_qty = sum(buy_quote_qty),
-    sell_qty = sum(sell_qty),
-    sell_quote_qty = sum(sell_quote_qty),
-    open = first(price),
-    high = max(price),
-    low = min(price),
-    close = last(price),
-    .groups = "drop"
-  ) |>
-  mutate(
-    qty = buy_qty + sell_qty,
-    quote_qty = buy_quote_qty + sell_quote_qty,
-    sell_proportion = sell_qty / qty,
-    imbalance = abs(buy_qty - sell_qty) / qty,
-    price_change = (close - open),
+setDT(trades)
+setorder(trades, ts)
+
+# --- 1. Resample onto a regular 5-minute grid ---
+freq <- "5 mins"
+bars_per_day <- 24 * 12   # 288 five-minute bars per day
+
+grid <- data.table(
+  ts = seq(
+    floor_date(min(trades$ts), "5 mins"),
+    ceiling_date(max(trades$ts), "5 mins"),
+    by = freq
   )
-}
-
-# 1. Generate orderflow imbalance measurements
-imbalance_bars <- generate_imbalance_bars(trades, "5 minutes") |>
-  subset(price_change > 0 & imbalance > 0)
-
-
-# 2. Fit the log-log linear model
-fit <- lm(log(abs(price_change)) ~ log(abs(imbalance)), data = imbalance_bars)
-
-# 3. Extract parameter estimates and back-transform the intercept
-a_param <- exp(coef(fit)[1])
-b_param <- coef(fit)[2]
-
-# 4. Extract 95% confidence intervals and back-transform the intercept bounds
-ci <- confint(fit, level = 0.95)
-lower_a <- exp(ci["(Intercept)", "2.5 %"])
-upper_a <- exp(ci["(Intercept)", "97.5 %"])
-lower_b <- ci["log(abs(imbalance))", "2.5 %"]
-upper_b <- ci["log(abs(imbalance))", "97.5 %"]
-
-# 5. Create a smooth continuous grid over your x-axis to build the envelope
-x_grid <- seq(min(abs(imbalance_bars$imbalance)), 
-              max(abs(imbalance_bars$imbalance)), 
-              length.out = 500)
-
-# 6. Construct the envelope curves dataframe
-envelope_df <- data.frame(
-  imbalance = x_grid,
-  fitted_curve = a_param * (x_grid ^ b_param),
-  lower_bound = lower_a * (x_grid ^ lower_b),
-  upper_bound = upper_a * (x_grid ^ upper_b)
 )
 
-# 7. Render the final market impact visualization
-ggplot() +
-  # A. Raw Data Points
-  geom_point(data = imbalance_bars,
-             aes(x = abs(imbalance), y = abs(price_change)),
-             alpha = 0.4, color = "darkblue") +
-  
-  # B. Translucent Parameter Envelope (Confidence Ribbon)
-  geom_ribbon(data = envelope_df, 
-              aes(x = imbalance, ymin = lower_bound, ymax = upper_bound), 
-              fill = "red", alpha = 0.15) +
-  
-  # C. Central Fitted Power Curve Estimate
-  geom_line(data = envelope_df, 
-            aes(x = imbalance, y = fitted_curve), 
-            color = "red", linewidth = 1.2) +
-  
-  # D. Clarifying Labels & Clean Theme
-  labs(
-    title = "Market Impact: Imbalance vs Price Change (95% confidence interval)",
-    subtitle = paste0("Fitted Power Curve: y = ", round(a_param, 2), " * x^", round(b_param, 4)),
-    x = "Absolute Imbalance",
-    y = "Absolute Price Change"
-  ) +
-  theme_minimal()
+setkey(trades, ts)
+setkey(grid, ts)
+
+# rolling join: last known trade price at/before each grid timestamp
+px <- trades[grid, roll = TRUE, .(ts, price)]
+px <- px[!is.na(price)]
+
+# --- 2. 24h return at each grid point ---
+px[, ret_24h := log(price / shift(price, bars_per_day))]
+
+# --- 3. Rolling 2-week std dev of those overlapping 24h returns ---
+window_bars <- 14 * bars_per_day   # 4032 five-minute bars = 14 days
+
+px[, vol_24h := frollapply(ret_24h, n = window_bars, FUN = sd, na.rm = TRUE, align = "right")]
+
+# annualise
+px[, vol_annualised := vol_24h * sqrt(365)]
+
+# --- 4. Join return and volatility back onto each trade ---
+vol_lookup <- px[!is.na(vol_24h), .(ts, ret_24h, vol_24h, vol_annualised)]
+setkey(vol_lookup, ts)
+setkey(trades, ts)
+
+trades[, c("ret_24h", "vol_24h", "vol_annualised") :=
+         vol_lookup[trades, .(ret_24h, vol_24h, vol_annualised), roll = TRUE]]
 ```
+
+Drop trades during high variance or very small order sizes. 
+
+### Variables
+
+The goal is to descrive market impact in terms of a small number of input variables. Here 

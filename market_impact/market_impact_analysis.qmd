@@ -1,0 +1,518 @@
+---
+title: "Market Impact Analysis"
+format: html
+author: "Raj Kundi"
+date: "08/21/2026"
+toc: TRUE
+---
+Notes: Should I be using aggregated trades or raw trades data?
+
+```{r}
+#| message: false
+#| warning: false
+#| include: false
+#| paged-print: false
+
+# load libraries
+library("dplyr")
+library("tidyr")
+library("lubridate")
+library("tibble")
+library("knitr")
+library("ggplot2")
+library(data.table)
+library(tidyr)
+library(magrittr)
+library(broom)
+
+# Load data
+trades <- read.csv("data/SOLUSD_PERP-trades-2024-08.csv")
+bookTicker <- read.csv("data/SOLUSD_PERP-bookTicker-2024-08.csv")
+
+# set tables to data.table objects
+setDT(trades)
+setDT(bookTicker)
+
+# set the column used to order the rows
+setorder(trades, time)
+setorder(bookTicker, transaction_time)
+
+# fix column types
+trades[, is_buyer_maker := as.logical(is_buyer_maker)]
+# convert time (microseconds) to POSIXct
+trades[, ts := as.POSIXct(time /1e3, origin = "1970-01-01", tz="UTC")]
+
+# compute mid (reference) price on the book data
+bookTicker[, mid_price := (best_bid_price + best_ask_price) / 2]
+
+## handle duplicate timestamps
+# PRE-trade lookup: if multiple snapshots share a timestamp, take the LAST one
+pre_lookup <- bookTicker[, .(mid_price = data.table::last(mid_price)), by = transaction_time]
+setkey(pre_lookup, transaction_time)
+
+# POST-trade lookup: if multiple snapshots share a timestamp, take the FIRST one
+post_lookup <- bookTicker[, .(mid_price = data.table::first(mid_price)), by = transaction_time]
+setkey(post_lookup, transaction_time)
+
+setkey(trades, time)
+
+## pre-trade mid: last snapshot at or before trade time
+trades[
+  , 
+  mid_pre := pre_lookup[
+    trades, 
+    on = c(transaction_time = "time"), 
+    roll = TRUE, 
+    x.mid_price
+    ]
+  ]
+
+## post-trade mid: first snapshot at or after (trade time + 30 min)
+ms_30min <- 30L * 60L * 1000L   # 1,800,000 ms
+
+trades[, time_plus_30m := time + ms_30min]
+
+trades[, mid_post := post_lookup[trades, on = c(transaction_time = "time_plus_30m"), roll = -Inf, x.mid_price]]
+
+## change in mid price from pre-trade to 30-min-later
+trades[, mid_change := mid_post - mid_pre]
+```
+
+# Introduction
+
+> Issue: for the optimal order execution and market making models, transaction costs are a significant factor in the performance. 
+
+Costs not only impact realised returns of active investment strategies, it also has an effect on the unwinding rate of optimal execution models since this unwinding faster costs more.
+
+Costs generally break down into: 
+- *direct costs* are commissions and fees, and
+- *indirect costs* are costs that are not explicitly stated. 
+
+For large trades, the most important component is the impact of the trader's own actions on the market.
+
+# Data
+
+## Clean data
+
+Remove trades during periods of extreme volatility, and remove trades too small to be of any significance and only add noise.
+
+## Variables
+
+> Goal: to describe market impact in terms of a small number of input variables.
+
+### Observable/measurements
+
+The following price points are of interest:
+
+- market price $S_0$ before the order begins executing;
+- market price $S_\text{post}$ after the order is complete, and
+- average realized price $\tilde{S}$ on the order.
+
+The mid-price is the *market* (reference) *price*.
+
+The post trade price is used to capture the *permanent* effects of the trade. It should be taken long enough after the last execution where any effects of temporary liquidity effects have dissipated. (The paper recommends about one half-hour after the last execution is adequate to achieve this. Investigate a time using *The long memory of the efficient market*.) So, we define
+$$
+t_\text{post} = t_n + \text{30 mins}.
+$$
+We can now define the **permanent impact** and **realised impact** by
+$$
+\begin{array}{rrcl}
+\text{Permanent impact:} & I & = & \frac{S_\text{post} - S_\text{pre}}{S_\text{pre}}, \\
+\text{Realized impact:} & J & = & \frac{S_\text{realized} - S_\text{pre}}{S_\text{pre}}.
+\end{array}
+$$
+The "effective" impact $J$ determines the actual cash received or spend on the trade. 
+
+To define **temporary impact** we will look at $J$ minus a suitable fraction of $I$, and the temporary impact is not observable, but can be theoretically measured in this model.
+
+The impacts $I$ and $J$ may be positive or negative, but generally depends on the total order $X$. For buy orders, then $X \gt 0$, and positive cost means that the price $S(t)$ moves upwards. So, generally the sign of $X$ should be the same as $I$ and $J$.
+
+### Volume time
+
+The market activity is known to vary throughout the day, but does so consistently between different periods of the trading day. This affects both the volume profile and variance of prices. To minimise its impact, we perform analysis under a *volume clock*, using *volume time* $\tau$, which is the fraction of an average day's volume that has executed up to clock time $t$. (NB: the volume time $\tau$ is normalised, started from 0 and finishing at 1 for the day.)
+
+We map each of the clock times $t_0, \ldots, t_n$ in the trades data to a corresponding volume tick $\tau_0, \ldots, \tau_n$. For liquid venues, we can use nonparametric estimators that directly measures differences in $\tau$: the shares traded during the period corresponding to the execution of each order. 
+
+
+```{r}
+#| echo: false
+#| message: false
+#| warning: false
+#| paged-print: false
+
+# Prep
+df <- trades %>%
+  mutate(
+    ts = ts,
+    date = as.Date(ts),
+    window_dt = floor_date(ts, unit = "15 minutes"),
+    window = format(window_dt, "%H:%M")
+  )
+
+all_windows <- format(
+  seq(
+    as.POSIXct("2024-01-01 00:00:00", tz = "UTC"),
+    by = "15 min",
+    length.out = 96
+  ), "%H:%M"
+)
+
+# Only show hourly labels (every 4th 15-min window)
+hour_breaks <- all_windows[seq(1, length(all_windows), by = 4)]
+
+daily_profile <- df %>%
+  group_by(date, window) %>%
+  summarise(base_qty = sum(base_qty), .groups = "drop") %>%
+  complete(
+    date = unique(df$date),
+    window = all_windows,
+    fill = list(base_qty = 0)
+  ) %>%
+  mutate(
+    window = factor(window, levels = all_windows),
+    window_num = as.numeric(window)   # 1..96, needed for polynomial fits
+  )
+
+# Mean + 95% CI per window
+n_days <- n_distinct(daily_profile$date)
+summary_profile <- daily_profile %>%
+  group_by(window) %>%
+  summarise(
+    mean_qty = mean(base_qty),
+    sd_qty = sd(base_qty),
+    se_qty = sd_qty / sqrt(n_days),
+    ci_lo = mean_qty - qt(0.975, n_days - 1) * se_qty,
+    ci_hi = mean_qty + qt(0.975, n_days - 1) * se_qty,
+    .groups = "drop"
+  ) %>%
+  mutate(window_num = as.numeric(window))
+
+# Quintic fit #1: on the average (mean_qty per window)
+fit_avg <- lm(mean_qty ~ poly(window_num, 5), data = summary_profile)
+summary_profile$fit_avg_pred <- predict(fit_avg)
+
+# Plot 1: mean line with 95% CI ribbon + quintic fit on the average
+ggplot(summary_profile, aes(x = window, y = mean_qty, group = 1)) +
+  geom_ribbon(aes(ymin = ci_lo, ymax = ci_hi), fill = "steelblue", alpha = 0.25) +
+  geom_line(color = "steelblue", linewidth = 1) +
+  geom_point(color = "steelblue", size = 1.2) +
+  geom_line(aes(y = fit_avg_pred), color = "firebrick", linewidth = 1, linetype = "dashed") +
+  scale_x_discrete(breaks = hour_breaks) +
+  labs(
+    x = "Time of day (hourly labels)",
+    y = "Avg base_qty traded",
+    title = "Average intraday trading activity with 95% CI (Aug 2024)",
+    subtitle = "Dashed red = cubic fit on the mean"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 7))
+
+# Volume time (tau) per window
+volume_time_profile <- summary_profile %>%
+  arrange(window) %>%
+  mutate(
+    cum_qty   = cumsum(mean_qty),
+    total_qty = sum(mean_qty),
+    tau_end   = cum_qty / total_qty,
+    tau_start = lag(tau_end, default = 0)
+  )
+
+# Add volume_time to trades: the most recently established tau
+# Using tau_start of the trade's own window = cumulative volume fraction
+# already elapsed as of the START of that window (i.e. the most recent
+# known value at the time the trade happened, no lookahead into the
+# still-in-progress window).
+trades <- trades %>%
+  mutate(
+    window = format(floor_date(as.POSIXct(ts, tz = "UTC"), unit = "15 minutes"), "%H:%M")
+  ) %>%
+  left_join(
+    volume_time_profile %>% select(window, volume_time = tau_start),
+    by = "window"
+  ) %>%
+  select(-window)  # drop helper column if you don't want it kept
+```
+
+Adding the post volume time to the trades data as well.
+
+```{r}
+
+# Volume time at the post-30-min mark
+trades[
+  , window_post := format(
+      as.POSIXct(time_plus_30m / 1e3, origin = "1970-01-01", tz = "UTC"),
+      "%H:%M"
+    )
+]
+
+# Look up tau_start for that post-30m window (same convention as volume_time:
+# most recently established tau as of that timestamp)
+post_tau_lookup <- volume_time_profile %>%
+  select(window, volume_time_post = tau_start)
+
+trades <- trades %>%
+  left_join(post_tau_lookup, by = c("window_post" = "window")) %>%
+  select(-window_post)
+```
+
+### Explanatory variables
+
+To explain the impacts $I$ and $J$, we look at the measurements:
+
+- total executed quantities $X$ (which for now is just each trades size);
+- volume duration of active trading, $T = \tau_n - \tau_0$ (which for now is just 0, since all trades are isntant 1 strike trades), and
+- volume duration of impact, $T_\text{post} = \tau_\text{post} - \tau_0$.
+
+NB: the total executed quantity is positive for a buy order and negative for a sell order.
+
+
+### Auxiliary vairables
+
+Despite trying to explain the dependence of the impact costs $I$ and $J$ on the order size and (volume) trade time, other market variables will influence the solution:
+
+- average daily volume in shares $V$, and
+- daily volatility $\sigma$.
+
+The average daily volume is calculated by a ten-day moving average. The volatility uses an intraday estimator that makes use of every transaction in the day. This needs to be tracked between different stocks.
+
+So $V$ is the ten day average intraday volume profile, and the volatility on fifteenth minute intervals.
+
+These normalise the active/explanatory variables. For example the order size as a fraction of average volume traded during the time of execution. We can estimate $VT$ directly by taking the average volume that executed between clock times $t_0$ and $t_n$ over the previous ten days. This is the only way this appears in the model, so we don't need to estimate $T$ directly.
+
+We use volatility to scale the impacts: a certain level of participation in the daily volume should cause certain level of participation in the normal motion of the asset.
+
+```{r}
+#| echo: false
+#| message: false
+#| warning: false
+#| paged-print: false
+
+# Helper: trailing n-day mean (uses only *previous* n days, not current)
+trailing_mean <- function(x, n = 10) {
+  sapply(seq_along(x), function(i) {
+    lo <- max(1, i - n)
+    hi <- i - 1
+    if (hi < lo) return(NA_real_)
+    mean(x[lo:hi], na.rm = TRUE)
+  })
+}
+
+# Volume: 10-day trailing moving average per 15-min window (V*T)
+volume_profile_10day <- daily_profile %>%
+  arrange(window, date) %>%
+  group_by(window) %>%
+  mutate(VT_10day = trailing_mean(base_qty, n = 10)) %>%
+  ungroup()
+
+latest_date <- max(volume_profile_10day$date)
+
+latest_volume_profile <- volume_profile_10day %>%
+  filter(date == latest_date) %>%
+  arrange(window)
+
+ggplot(latest_volume_profile, aes(x = window, y = VT_10day, group = 1)) +
+  geom_line(color = "steelblue", linewidth = 1) +
+  geom_point(color = "steelblue", size = 1) +
+  labs(
+    x = "Time of day (15-min window)",
+    y = "10-day trailing avg base_qty (V*T)",
+    title = paste0("Current 10-day trailing volume profile (as of ", latest_date, ")")
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 6))
+
+ggplot(volume_profile_10day %>% filter(!is.na(VT_10day)),
+       aes(x = window, y = VT_10day, group = date, color = as.numeric(date))) +
+  geom_line(alpha = 0.6, linewidth = 0.4) +
+  scale_color_gradient(low = "grey80", high = "steelblue", name = "Date") +
+  labs(
+    x = "Time of day (15-min window)",
+    y = "10-day trailing avg base_qty (V*T)",
+    title = "Evolution of the 10-day trailing volume profile through the month"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 6))
+
+# Volatility: intraday realized vol per window, 10-day trailing average
+#    Assumes trades has a `price` column -- rename below if different
+df_price <- trades %>%
+  mutate(
+    ts = as.POSIXct(ts, tz = "UTC"),
+    date = as.Date(ts),
+    window_dt = floor_date(ts, unit = "15 minutes"),
+    window = format(window_dt, "%H:%M")
+  ) %>%
+  arrange(ts) %>%
+  group_by(date, window) %>%
+  mutate(log_ret = log(price / lag(price))) %>%   # <- change `price` if your column differs
+  ungroup()
+
+daily_vol_profile <- df_price %>%
+  group_by(date, window) %>%
+  summarise(
+    realized_var = sum(log_ret^2, na.rm = TRUE),
+    n_obs = sum(!is.na(log_ret)),
+    .groups = "drop"
+  ) %>%
+  mutate(realized_vol = sqrt(realized_var)) %>%
+  complete(
+    date = unique(df_price$date),
+    window = all_windows,
+    fill = list(realized_vol = NA_real_, realized_var = NA_real_, n_obs = 0)
+  ) %>%
+  mutate(window = factor(window, levels = all_windows))
+
+volatility_profile_10day <- daily_vol_profile %>%
+  arrange(window, date) %>%
+  group_by(window) %>%
+  mutate(sigma_10day = trailing_mean(realized_vol, n = 10)) %>%
+  ungroup()
+
+latest_vol_profile <- volatility_profile_10day %>%
+  filter(date == latest_date) %>%
+  arrange(window)
+
+ggplot(latest_vol_profile, aes(x = window, y = sigma_10day, group = 1)) +
+  geom_line(color = "firebrick", linewidth = 1) +
+  geom_point(color = "firebrick", size = 1) +
+  labs(
+    x = "Time of day (15-min window)",
+    y = "10-day trailing realized volatility",
+    title = paste0("Current 10-day trailing volatility profile (as of ", latest_date, ")")
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 6))
+```
+
+
+# Trajectory cost model
+
+Simplification:
+
+- the rate of trading is constant (in volume time), and
+- neglect relations between stocks.
+
+We decompose the **price impact** into two components:
+- a *permanent component* that reflects the information transmitted to the market by the buy/sell imbalance.
+- A *temporary component* reflecting the price concession needed to attract counterparties to trade with.
+
+The **realised price impact** is a combination of these two effects. 
+$$
+\text{realized} = \text{permanent} + \text{temporary}
+$$
+
+With suitable coefficients and scaling depending on $T$. So temporary impact can be obtained as the different.
+
+So, we start with an initial desired order of $X$ shares. We assume that this order is completed by uniform rate of trading over a volume time interval $T$. That is, the trade *rate* in volume units is $v = X/T$, and is held constant until the program is completed. Constant rate in these units is equivalent to VWAP execution during the time of execution.
+
+## Permanent and temporary impact
+
+### Permanent impact
+
+The model postulates that the asset price $S(\tau)$ follows an arithmetic Brownian motion with a drift term that depnds on our trade rate $v$.
+
+$$
+dS = S_0 g(v) d \tau + S_0 \sigma d B
+$$
+where $B(\tau)$ is a standard Brownian motion, and $g(v)$ is the **permanent impact function**. As noted, $\tau$ is volume time, representing the fraction average of an average day's volume that has executed so far. Integrating this expression in time, taking $ v = X/T$ for $0 \le \tau \le T$, then
+$$
+I = T g \left( \frac{X}{T} \right) + \sigma \sqrt{T_\text{post}} \xi
+$$
+where $\xi$ is a standard Guassian variate.
+
+### Temporary impact
+
+The price actually received from out trades is
+$$
+\tilde{S}(\tau) = S(\tau) + S_0 h\left( \frac{X}{T} \right)
+$$
+where $h(v)$ is the **temporary impact function**. 
+
+At constant liquidation rate, calculating the time average of the execution price gives the temporary impact expression
+$$
+J - \frac{I}{2} = h\left(\frac{H}{T}\right) + \sigma \left( \sqrt{\frac{T}{12}\left(4 - 3\frac{T}{T_\text{post}}\right)}\,\chi - \frac{T_\text{post} - T}{2\sqrt{T_\text{post}}}\,\xi \right)
+$$
+
+where $\chi$ is also a standard Gaussian variate, independent to $\xi$.
+
+These equations give us explicit expressions for the permanent and temporary cost componenets $I$ and $J$ in terms of the values of the functions $g$ and $h$ at known trade rates, together with estimates of the magnitude of the error coming from volatility.
+
+## Choice of functional form
+
+We postulate that these functions are power laws, that is,
+
+$$
+\begin{array}{rcl}
+g(v) & = & \pm \gamma |v|^\alpha,  \\
+h(v) & = & \pm \eta |v|^\beta,
+\end{array}
+$$
+where numerical values of the coefficients and exponents are to be determined by linear and nonlinear regression on the data. The sign is to be chosen to have the same sign as $v$.
+
+# Cross sectional description
+
+In the preceding discussion, we assumed a single asset, for which we assumed that changes in impact functions from one day to the next were adequately handled by scaling the impact functions by daily volume and volatility. But single asset fits are only marginally significant for practical use.
+
+## Parameter scaling
+We have assumed an ideal asset, all of whose properties are constant in time. For any real asset, the parameters that determine market impact will vary with time. For example, if the volume for a day is unusually low, we would have higher costs. Or if the volatility was unusually hight, again, that would increase costs.
+
+We therefore assume that the natural variable for characterising the
+size of an overall order or of a rate of trading is not shares per se but
+the number of shares relative to a best estimate of the background flow
+for that stock in the time period when trading will occur. That is, the
+impact cost functions should be expressed in terms of the dimensionless
+quantity $X/V T$ rather than $X$ itself, where $V$ is the average number of
+shares per day.
+
+Furthermore, we suppose the motion of the price should not be given
+as a raw percentage figure, but should be expressed as a fraction of the
+normal daily motion of the price, as expressed by the volatility $\sigma$.
+
+Therefore,
+$$
+\begin{array}{rcl}
+I & = & \sigma T g\left( \frac{X}{VT} \right) \\
+J - \frac{I}{2} & = & \sigma h \left( \frac{X}{VT} \right)
+\end{array}
+$$
+
+## Model determination
+
+> Question: How does market impact vary across assets; that is how might they depend on variables such as total market capitalisation, shares outstanding, bid-ask spread or other quantities.
+
+### Permanent
+
+We insert a liquidity factor $\mathcal{L}$ into the permanent cost function $g(v)$, where it depends on the market parameters characterising the individual stock.
+
+- *Shares outstanding*: We constrain the form of $\mathcal{L}\$ to be 
+$$
+\mathcal{L} = \left( \frac{\Theta}{V} \right)^\delta
+$$
+where $\Theta$ is the total number of shares outstanding and the exponent is to be determined. The fraction $\Theta / V$ is the inverse of turnover, the fraction of the company's value traded each day. This is a natural explanatory variable. 
+
+- *Bid ask spread* could be used?
+- *Market capitalisation* differes from shares outstanding by the price per share. So including this factor is equivalent to including a price effect. 
+
+### Temporary
+
+Through experimenting, the temporary cost function does not require any stock-specific modification. 
+
+### Determination of exponent
+
+After assuming the functional forms, by performing a nonlinear regression, we determing the values of $\alpha, \beta$ and $\gamma$ in:
+$$
+\begin{array}{rcl}
+\frac 1 \sigma & = & \gamma T \text{sgn} (X) \left| \frac{X}{VT} \right|^\alpha \left( \frac{\Theta}{V} \right) ^ \gamma \\
+\frac{1}{\sigma} \left( J - \frac 1 2 \right) & = & \eta \text{sgn}(X) \left| \frac{X}{VT} \right|^\beta
+\end{array}
+$$
+
+The error/confidence-intervals are best expressed by exploring one standard deviation away. Then the true value can be expected to be within this range with 67% probability and within a range twice as large with 95% probability.
+
+Notes:
+
+- The value $\alpha = 1$ cannot be reliably rejected, and is infact much simpler to use.
+
+
+
+
