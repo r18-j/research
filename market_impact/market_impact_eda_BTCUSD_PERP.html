@@ -9,7 +9,7 @@
 <meta name="author" content="Raj Kundi">
 <meta name="dcterms.date" content="2026-08-20">
 
-<title>Market Impact Exploratory Data Analysis</title>
+<title>Market Impact on BTCUSDT Futures Market</title>
 <style>
 /* Default styles provided by pandoc.
 ** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
@@ -25,55 +25,20 @@ ul.task-list li input[type="checkbox"] {
   margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */ 
   vertical-align: middle;
 }
-/* CSS for syntax highlighting */
-html { -webkit-text-size-adjust: 100%; }
-pre > code.sourceCode { white-space: pre; position: relative; }
-pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
-pre > code.sourceCode > span:empty { height: 1.2em; }
-.sourceCode { overflow: visible; }
-code.sourceCode > span { color: inherit; text-decoration: inherit; }
-div.sourceCode { margin: 1em 0; }
-pre.sourceCode { margin: 0; }
-@media screen {
-div.sourceCode { overflow: auto; }
-}
-@media print {
-pre > code.sourceCode { white-space: pre-wrap; }
-pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
-}
-pre.numberSource code
-  { counter-reset: source-line 0; }
-pre.numberSource code > span
-  { position: relative; left: -4em; counter-increment: source-line; }
-pre.numberSource code > span > a:first-child::before
-  { content: counter(source-line);
-    position: relative; left: -1em; text-align: right; vertical-align: baseline;
-    border: none; display: inline-block;
-    -webkit-touch-callout: none; -webkit-user-select: none;
-    -khtml-user-select: none; -moz-user-select: none;
-    -ms-user-select: none; user-select: none;
-    padding: 0 4px; width: 4em;
-  }
-pre.numberSource { margin-left: 3em;  padding-left: 4px; }
-div.sourceCode
-  {   }
-@media screen {
-pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
-}
 </style>
 
 
-<script src="market_impact_eda_files/libs/clipboard/clipboard.min.js"></script>
-<script src="market_impact_eda_files/libs/quarto-html/quarto.js" type="module"></script>
-<script src="market_impact_eda_files/libs/quarto-html/tabsets/tabsets.js" type="module"></script>
-<script src="market_impact_eda_files/libs/quarto-html/popper.min.js"></script>
-<script src="market_impact_eda_files/libs/quarto-html/tippy.umd.min.js"></script>
-<script src="market_impact_eda_files/libs/quarto-html/anchor.min.js"></script>
-<link href="market_impact_eda_files/libs/quarto-html/tippy.css" rel="stylesheet">
-<link href="market_impact_eda_files/libs/quarto-html/quarto-syntax-highlighting-15634bcf2e68342d4ad2dfa704d543f6.css" rel="stylesheet" id="quarto-text-highlighting-styles">
-<script src="market_impact_eda_files/libs/bootstrap/bootstrap.min.js"></script>
-<link href="market_impact_eda_files/libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
-<link href="market_impact_eda_files/libs/bootstrap/bootstrap-efbb37e9afcc02144ebbc7afd12a776f.min.css" rel="stylesheet" append-hash="true" id="quarto-bootstrap" data-mode="light">
+<script src="market_impact_eda_BTCUSD_PERP_files/libs/clipboard/clipboard.min.js"></script>
+<script src="market_impact_eda_BTCUSD_PERP_files/libs/quarto-html/quarto.js" type="module"></script>
+<script src="market_impact_eda_BTCUSD_PERP_files/libs/quarto-html/tabsets/tabsets.js" type="module"></script>
+<script src="market_impact_eda_BTCUSD_PERP_files/libs/quarto-html/popper.min.js"></script>
+<script src="market_impact_eda_BTCUSD_PERP_files/libs/quarto-html/tippy.umd.min.js"></script>
+<script src="market_impact_eda_BTCUSD_PERP_files/libs/quarto-html/anchor.min.js"></script>
+<link href="market_impact_eda_BTCUSD_PERP_files/libs/quarto-html/tippy.css" rel="stylesheet">
+<link href="market_impact_eda_BTCUSD_PERP_files/libs/quarto-html/quarto-syntax-highlighting-15634bcf2e68342d4ad2dfa704d543f6.css" rel="stylesheet" id="quarto-text-highlighting-styles">
+<script src="market_impact_eda_BTCUSD_PERP_files/libs/bootstrap/bootstrap.min.js"></script>
+<link href="market_impact_eda_BTCUSD_PERP_files/libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
+<link href="market_impact_eda_BTCUSD_PERP_files/libs/bootstrap/bootstrap-efbb37e9afcc02144ebbc7afd12a776f.min.css" rel="stylesheet" append-hash="true" id="quarto-bootstrap" data-mode="light">
 
 
 </head>
@@ -86,22 +51,11 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
     <h2 id="toc-title">Table of contents</h2>
    
   <ul>
-  <li><a href="#market-impact-esimation" id="toc-market-impact-esimation" class="nav-link active" data-scroll-target="#market-impact-esimation">Market impact esimation</a>
+  <li><a href="#btcusdt-perpetual-market" id="toc-btcusdt-perpetual-market" class="nav-link active" data-scroll-target="#btcusdt-perpetual-market">BTCUSDT perpetual market</a>
   <ul class="collapse">
-  <li><a href="#load-btc-taq-data" id="toc-load-btc-taq-data" class="nav-link" data-scroll-target="#load-btc-taq-data">Load BTC TAQ data</a>
-  <ul class="collapse">
-  <li><a href="#book-modifying-actions" id="toc-book-modifying-actions" class="nav-link" data-scroll-target="#book-modifying-actions">Book modifying actions:</a></li>
-  <li><a href="#informationexecution-actions" id="toc-informationexecution-actions" class="nav-link" data-scroll-target="#informationexecution-actions">Information/execution actions:</a></li>
+  <li><a href="#binance-historical-data" id="toc-binance-historical-data" class="nav-link" data-scroll-target="#binance-historical-data">Binance historical data</a></li>
+  <li><a href="#generate-orderflow-imbalance-measurements-and-estimate-market-impact-parameters" id="toc-generate-orderflow-imbalance-measurements-and-estimate-market-impact-parameters" class="nav-link" data-scroll-target="#generate-orderflow-imbalance-measurements-and-estimate-market-impact-parameters">Generate orderflow imbalance measurements and estimate market impact parameters</a></li>
   </ul></li>
-  </ul></li>
-  <li><a href="#market-impact-of-single-trades" id="toc-market-impact-of-single-trades" class="nav-link" data-scroll-target="#market-impact-of-single-trades">Market impact of single trades</a></li>
-  <li><a href="#market-impact-volumes-vs-price-changes-using-aggregated-data" id="toc-market-impact-volumes-vs-price-changes-using-aggregated-data" class="nav-link" data-scroll-target="#market-impact-volumes-vs-price-changes-using-aggregated-data">Market impact: volumes vs price changes using aggregated data</a>
-  <ul class="collapse">
-  <li><a href="#orderflow-imbalance-over-5-minute-intervals" id="toc-orderflow-imbalance-over-5-minute-intervals" class="nav-link" data-scroll-target="#orderflow-imbalance-over-5-minute-intervals">Orderflow imbalance over 5 minute intervals</a></li>
-  <li><a href="#negatives" id="toc-negatives" class="nav-link" data-scroll-target="#negatives">Negatives</a></li>
-  <li><a href="#result" id="toc-result" class="nav-link" data-scroll-target="#result">Result</a></li>
-  </ul></li>
-  <li><a href="#btcusd-perpetual-market" id="toc-btcusd-perpetual-market" class="nav-link" data-scroll-target="#btcusd-perpetual-market">BTCUSD perpetual market</a></li>
   </ul>
 </nav>
 </div>
@@ -109,7 +63,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 
 <header id="title-block-header" class="quarto-title-block default">
 <div class="quarto-title">
-<h1 class="title">Market Impact Exploratory Data Analysis</h1>
+<h1 class="title">Market Impact on BTCUSDT Futures Market</h1>
 </div>
 
 
@@ -138,97 +92,58 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </header>
 
 
-<section id="market-impact-esimation" class="level1">
-<h1>Market impact esimation</h1>
-<p>There are a few approaches to measuring market impact:</p>
-<ul>
-<li>study the market impact of a single trade or</li>
-<li>the market impact associated with entire execution processes.</li>
-</ul>
-<p>Unfortunately, the data needed to identify traders is not provided by in TAQ data and is only usually held in private datasets with banks like Citigroup, ….</p>
-<section id="load-btc-taq-data" class="level2">
-<h2 class="anchored" data-anchor-id="load-btc-taq-data">Load BTC TAQ data</h2>
-<p>Load <strong>BTC</strong> (Bitcoin) <strong>Futures</strong> from the <strong>CME Globex MDP 3.0</strong> dataset.</p>
-<ul>
-<li><code>ts_recv</code>: The capture-server-received timestamp expressed as the number of nanoseconds since the UNIX epoch.</li>
-<li><code>size</code>: The order quantity.</li>
-<li><code>ts_event</code>: The matching-engine-received timestamp expressed as the number of nanoseconds since the UNIX epoch.</li>
-<li><code>channel_id</code>: The channel ID assigned by Databento as an incrementing integer starting at zero.</li>
-<li><code>rtype</code>: The record type. Each schema corresponds with a single rtype value.</li>
-<li><code>order_id</code>: The order ID assigned at the venue.</li>
-<li><code>publisher_id</code>: The publisher ID assigned by Databento, which denotes dataset and venue.</li>
-<li><code>flags</code>: A bit field indicating event end, message characteristics and data quality.</li>
-<li><code>instrument_id</code>: The numeric instrument ID.</li>
-<li><code>ts_in_delta</code>: The matching-engine-sending timestamp expressed as the number of nanoseconds before ts_recv.</li>
-<li><code>action</code>: The event action. Can be <strong>A</strong>dd, <strong>C</strong>ancel, <strong>M</strong>odify, clea<strong>R</strong> book, <strong>T</strong>rade, <strong>F</strong>ill or <strong>N</strong>one.</li>
-<li><code>sequence</code>: The message sequence number assigned at the venue.</li>
-<li><code>side</code>: The side that initiates the event. Can be <strong>A</strong>sk for a sell order (or sell aggressor in a trade), <strong>B</strong>id for a buy order (or buy aggressor in a trade) or <strong>N</strong>one where no side is specified by the original source.</li>
-<li><code>symbol</code>: The requested symbol for the instrument.</li>
-<li><code>price</code>: The order price expressed as a signed integer where every 1 unit corresponds to 1e-9, i.e.&nbsp;1/1,000,000,000 or 0.000000001.</li>
-</ul>
-<section id="book-modifying-actions" class="level3">
-<h3 class="anchored" data-anchor-id="book-modifying-actions">Book modifying actions:</h3>
-<p>These actions change the state of the limit order book.</p>
-<ul>
-<li>Add <code>A</code>: Inserts a brand new resting limit order into the book at a specific price and size.</li>
-<li>Cancel <code>C</code>: Reduces the quantity of a resting order or removes it completely from the book. This can be a partial cancellation or a full cancellation.</li>
-<li>Modify <code>M</code>: Changes an existing resting order’s price and/or size. NB: Depending on the exchange rules, modifying an order usually causes it to lose its time priority in the queue.</li>
-<li>Clear book <code>R</code>: Completely wipes out all resting orders for that specific instrument. This typically occurs during exchange restarts, connection resets or when a symbol changes trading states (i.e.&nbsp;regulartory halts).</li>
-</ul>
+<section id="btcusdt-perpetual-market" class="level1">
+<h1>BTCUSDT perpetual market</h1>
+<section id="binance-historical-data" class="level2">
+<h2 class="anchored" data-anchor-id="binance-historical-data">Binance historical data</h2>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 50%">
+<col style="width: 50%">
+</colgroup>
+<thead>
+<tr class="header">
+<th>Attribute/field</th>
+<th>data</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>id</code></td>
+<td>Unique identifier for each trade.</td>
+</tr>
+<tr class="even">
+<td><code>price</code></td>
+<td>Price the trade happened at.</td>
+</tr>
+<tr class="odd">
+<td><code>qty</code>, <code>base_qty</code></td>
+<td>Quantity traded.</td>
+</tr>
+<tr class="even">
+<td><code>time</code></td>
+<td>Timestamp the trade happened at.</td>
+</tr>
+<tr class="odd">
+<td><code>is_buyer_maker</code></td>
+<td>Was the buyer the passive trader, or was a bid limit order lifted.</td>
+</tr>
+</tbody>
+</table>
 </section>
-<section id="informationexecution-actions" class="level3">
-<h3 class="anchored" data-anchor-id="informationexecution-actions">Information/execution actions:</h3>
-<p>These actions indicate that an execution has taken place. Crucially, they do not affect the resting order book directly, because any associated order book updates (like a filled order disappearing) will be paired with explicit <code>Cancel</code> or <code>Modify</code> actions.</p>
-<ul>
-<li>Trade <code>T</code>: Represents an event where an incoming (“aggressive”) order matches against a resting order.</li>
-<li>Fill <code>F</code>: Specifically notes that a resting order in the book was successfully executed. While Trade indicates an incoming market order, Fill makrs the completion against a resting limit order.</li>
-<li>None <code>N</code>: Does not affect the book and does not represent an execution. It is usually just a placeholder for messages.</li>
-</ul>
-</section>
-</section>
-</section>
-<section id="market-impact-of-single-trades" class="level1">
-<h1>Market impact of single trades</h1>
-<p>We could study the market impact of single trades and how the price formation process evolves following buyer-/seller- initiated trades. Generally, there is little information in the volume of a single trade, because the size of a single trade is mainly driven by the available liquidity in the limit order books. Furthermore, beyond the immediate impact and measures of the impact of a trade after a given period of time, it is very difficult to know, with market data only, whether the impact comes from that specific trade or from a collection of trades. For example, if there were 1000 uninterrupted large sell orders and the market dropped significantly, was it due to the 1000<sup>th</sup> trade or the collection of all 1000 trades? (Obviously, all 1000 trades played a part.)</p>
-<p>The law of large numbers cannot be used because the side of a trade is autocorrelated; buyer (resp. seller) initiated trades are usually followed by more buy (resp. sell) initiated trades.</p>
-<p><em>Investigate how long the memory is?</em></p>
-</section>
-<section id="market-impact-volumes-vs-price-changes-using-aggregated-data" class="level1">
-<h1>Market impact: volumes vs price changes using aggregated data</h1>
-<blockquote class="blockquote">
-<p>Hypothesis: <em>there should not be any price change (on average) if the volume of buyer and seller initiated trades were equal.</em></p>
-</blockquote>
-<p>A way to estimate market impact is to consider over fixed time intervals, the difference between the volume or number of buyer and seller initiated trades and use it as an explanatory variable for the price change over the same period. This can either be the proportion of seller initiated trades or the difference between the quote or base quantities, normalized by the total base or quote quantity. (<code>BTCUSDT</code> has base BTC and quote USDT.)</p>
-<section id="orderflow-imbalance-over-5-minute-intervals" class="level2">
-<h2 class="anchored" data-anchor-id="orderflow-imbalance-over-5-minute-intervals">Orderflow imbalance over 5 minute intervals</h2>
-<p>Measure the trade imbalances and micro-price changes over five minute windows and fit to a power function.</p>
+<section id="generate-orderflow-imbalance-measurements-and-estimate-market-impact-parameters" class="level2">
+<h2 class="anchored" data-anchor-id="generate-orderflow-imbalance-measurements-and-estimate-market-impact-parameters">Generate orderflow imbalance measurements and estimate market impact parameters</h2>
+<p>We take buy or sell from the prespective of the aggresive trader placing market orders.</p>
 <div class="cell">
 <div class="cell-output-display">
 <div>
 <figure class="figure">
-<p><img src="market_impact_eda_files/figure-html/unnamed-chunk-3-1.png" class="img-fluid figure-img" width="672"></p>
+<p><img src="market_impact_eda_BTCUSD_PERP_files/figure-html/unnamed-chunk-3-1.png" class="img-fluid figure-img" width="672"></p>
 </figure>
 </div>
 </div>
 </div>
 </section>
-<section id="negatives" class="level2">
-<h2 class="anchored" data-anchor-id="negatives">Negatives</h2>
-<ul>
-<li>Trade imbalances and price changes are considered over the same period of time, therefore there is no dynamic consideration.</li>
-<li>Does not show which proportion of the impact is only temporary, at what speed it is, etc.</li>
-</ul>
-</section>
-<section id="result" class="level2">
-<h2 class="anchored" data-anchor-id="result">Result</h2>
-<p>Found an expected result near the square root law for the market impact when fitting the orderflow imbalance against changes in the micro-price.</p>
-</section>
-</section>
-<section id="btcusd-perpetual-market" class="level1">
-<h1>BTCUSD perpetual market</h1>
-<div class="cell">
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb1"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a>data <span class="ot">&lt;-</span> <span class="fu">read.csv</span>(<span class="st">"../data/BTCUSD_PERP-trades-2026-07.csv"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
-</div>
 </section>
 
 </main>

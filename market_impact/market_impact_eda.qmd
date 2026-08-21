@@ -220,3 +220,4 @@ ggplot() +
 ## Result
 
 Found an expected result near the square root law for the market impact when fitting the orderflow imbalance against changes in the micro-price.
+
