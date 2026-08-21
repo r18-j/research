@@ -52,4 +52,7 @@ rsconnect/
 *_files/
 
 # Data folder
-data/
+*data/
+
+# vscode
+.vscode/
