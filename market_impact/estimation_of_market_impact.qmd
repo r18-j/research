@@ -10,15 +10,24 @@ date: "08/21/2026"
 #| warning: false
 #| include: false
 #| paged-print: false
+
+
 library(ggplot2)
 library(tidyverse)
 library(data.table)
 library(lubridate)
 library(zoo)
+
+# Format a number as "$m \times 10^{e}$" for correctly rendered scientific notation inline.
+format_sci <- function(x, digits = 3) {
+  exponent <- floor(log10(abs(x)))
+  mantissa <- signif(x / 10^exponent, digits)
+  sprintf("$%s \\times 10^{%d}$", format(mantissa), exponent)
+}
 ```
 
 # Introduction
-To compute trading curves and trading envelopes, market impact and execution costs are needed. 
+To compute trading curves and trading envelopes, market impact and execution costs are needed. We estimate the permanent impact parameter using one month (August 2024) of Binance SOLUSD_PERP perpetual futures data: tick-level `trades` (individual executions, signed by taker side) and `bookTicker` (best bid/ask snapshots), from which the mid-price process is reconstructed.
 ```{r}
 trades <- fread("data/SOLUSD_PERP-trades-2024-08.csv")
 bookTicker <- fread("data/SOLUSD_PERP-bookTicker-2024-08.csv")
@@ -33,6 +42,7 @@ bookTicker[, mid_price := (best_bid_price + best_ask_price) / 2]
 setorder(trades, time)
 setorder(bookTicker, transaction_time)
 ```
+For each trade we attach the most recent mid-price observed before it (`pre_mid`) and the first mid-price observed after it (`post_mid`), so that the difference between the two isolates the price move associated with that trade (or a bar of trades) net of unrelated mid-price drift.
 ```{r}
 setkey(bookTicker, transaction_time)
 trades[, pre_mid := bookTicker[trades, on = .(transaction_time < time), mult = "last", .(mid_price)]$mid_price]
@@ -42,14 +52,15 @@ The mid price of a stock is modeled by a process
 $$
 d S_t = \sigma d W_t + k v_t dt
 $$
-where $\sigma$ is a positive constant called the arithmetic volatility of the asset, and $k$ is the nonegative parameter modeling the magnitude of the permanent market impact. 
+where $\sigma$ is a positive constant called the arithmetic volatility of the asset, and $k$ is the nonegative parameter modeling the magnitude of the **permanent market impact**.
 
-> investigate how the trader's own actions together with the order flow of other market participants affects the price of the assets she is trading.
+Integrating the drift term over a bar gives $S_{t+\Delta} - S_t \approx k \sum_i v_i + \text{noise}$, so regressing a bar's mid-price change (`price_diff`) on its net signed volume (`imbalance`) recovers $k$, the permanent impact per unit of signed order flow, as the slope.
 
+Bars are constructed two ways to check that the estimate of $k$ is not an artifact of the sampling scheme: fixed 5-minute time bars, and volume bars that close every 5,000 units of `base_qty` traded.
 ```{r}
 trades[, sign := ifelse(is_buyer_maker, -1, 1)]
 trades[, sign_base_qty := base_qty * sign]
-bars <- trades[, .(
+bars_time <- trades[, .(
   imbalance = sum(sign_base_qty),
   base_qty = sum(base_qty),
   n_trades = .N,
@@ -57,29 +68,71 @@ bars <- trades[, .(
   pre_mid_price = first(pre_mid),
   post_mid_price = last(post_mid)
 ), by = .(bin = floor_date(ts, "5 minutes"))]
-bars[, std_dev := rollapply(pre_mid_price, width = 15, FUN = sd, fill = NA, align = "right")]
+bars_time[, std_dev := rollapply(pre_mid_price, width = 15, FUN = sd, fill = NA, align = "right")]
 ```
 ```{r}
-q_std_dev <- quantile(bars$std_dev, 0.995, na.rm = TRUE)
-q_imbalance_high <- quantile(bars$imbalance, 0.995, na.rm = TRUE)
-q_imbalance_low <- quantile(bars$imbalance, 0.005, na.rm = TRUE)
-bars <- bars[std_dev <= q_std_dev & imbalance <= q_imbalance_high & imbalance >= q_imbalance_low]
+# Volume bars: group trades into buckets of 5000 base_qty traded
+trades[, cum_base_qty := cumsum(base_qty)]
+trades[, vol_bin := floor(cum_base_qty / 5000)]
+bars_volume <- trades[, .(
+  imbalance = sum(sign_base_qty),
+  base_qty = sum(base_qty),
+  n_trades = .N,
+  price_diff = last(post_mid) - first(pre_mid),
+  pre_mid_price = first(pre_mid),
+  post_mid_price = last(post_mid)
+), by = .(bin = vol_bin)]
+bars_volume[, std_dev := rollapply(pre_mid_price, width = 15, FUN = sd, fill = NA, align = "right")]
+```
+The top 5% of rolling volatility (`std_dev`) and top 5% of traded volume (`base_qty`) are dropped to exclude bars dominated by news or liquidation events, the top and bottom 5% of `imbalance` are dropped to limit outlier influence on the OLS fit, and bars with `abs(imbalance) <= 1` (roughly below $100 notional) are dropped since they carry little order-flow information.
+```{r}
+filter_bars <- function(bars) {
+  q_std_dev <- quantile(bars$std_dev, 0.95, na.rm = TRUE)
+  q_base_qty <- quantile(bars$base_qty, 0.95, na.rm = TRUE)
+  q_imbalance_high <- quantile(bars$imbalance, 0.95, na.rm = TRUE)
+  q_imbalance_low <- quantile(bars$imbalance, 0.05, na.rm = TRUE)
+  bars[
+    std_dev <= q_std_dev &
+      base_qty <= q_base_qty &
+      imbalance <= q_imbalance_high &
+      imbalance >= q_imbalance_low &
+      abs(imbalance) > 1
+  ]
+}
+bars_time <- filter_bars(bars_time)
+bars_volume <- filter_bars(bars_volume)
 ```
 
 # Regression
+The slope on `imbalance` estimates $k$; its significance and the $R^2$ indicate how much of the bar-level mid-price change is explained by signed order flow alone.
+
+## Time Bars (5 minutes)
 ```{r}
-fitted <- lm(price_diff ~ imbalance, bars)
-summary(fitted)
+fitted_time <- lm(price_diff ~ imbalance + 0, bars_time)
+summary(fitted_time)
 ```
 ```{r}
-ggplot(bars, aes(x = bin, y = std_dev)) +
-  geom_line() +
-  labs(title = "Rolling Standard Deviation", x = "Time", y = "Std Dev")
-```
-```{r}
-ggplot(bars, aes(x = imbalance, y = price_diff)) +
+ggplot(bars_time, aes(x = imbalance, y = price_diff)) +
   geom_point(alpha = 0.3) +
   geom_smooth(method = "lm", color = "red", se = TRUE) +
-  labs(title = "Price Diff vs Imbalance",
-       x = "Imbalance", y = "Price Diff")
+  labs(title = "Price Diff vs Imbalance (Time Bars)",
+       x = "Imbalance", y = "Price Diff") +
+  theme_minimal()
 ```
+
+## Volume Bars (5000 base_qty)
+```{r}
+fitted_volume <- lm(price_diff ~ imbalance + 0, bars_volume)
+summary(fitted_volume)
+```
+```{r}
+ggplot(bars_volume, aes(x = imbalance, y = price_diff)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "lm", color = "red", se = TRUE) +
+  labs(title = "Price Diff vs Imbalance (Volume Bars)",
+       x = "Imbalance", y = "Price Diff") +
+  theme_minimal()
+```
+
+# Conclusion
+The estimated permanent impact coefficient $k$ (the slope on `imbalance`) is `r format_sci(coef(fitted_time)[["imbalance"]])` for the time-bar specification and `r format_sci(coef(fitted_volume)[["imbalance"]])` for the volume-bar specification. A stable, significant slope on `imbalance` across both the time-bar and volume-bar specifications would indicate a genuine permanent impact coefficient $k$ rather than an artifact of the chosen bar construction.

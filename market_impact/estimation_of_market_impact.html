@@ -116,7 +116,12 @@ window.Quarto = {
    
   <ul>
   <li><a href="#introduction" id="toc-introduction" class="nav-link active" data-scroll-target="#introduction">Introduction</a></li>
-  <li><a href="#regression" id="toc-regression" class="nav-link" data-scroll-target="#regression">Regression</a></li>
+  <li><a href="#regression" id="toc-regression" class="nav-link" data-scroll-target="#regression">Regression</a>
+  <ul class="collapse">
+  <li><a href="#time-bars-5-minutes" id="toc-time-bars-5-minutes" class="nav-link" data-scroll-target="#time-bars-5-minutes">Time Bars (5 minutes)</a></li>
+  <li><a href="#volume-bars-5000-base_qty" id="toc-volume-bars-5000-base_qty" class="nav-link" data-scroll-target="#volume-bars-5000-base_qty">Volume Bars (5000 base_qty)</a></li>
+  </ul></li>
+  <li><a href="#conclusion" id="toc-conclusion" class="nav-link" data-scroll-target="#conclusion">Conclusion</a></li>
   </ul>
 </nav>
 </div>
@@ -155,7 +160,7 @@ window.Quarto = {
 
 <section id="introduction" class="level1">
 <h1>Introduction</h1>
-<p>To compute trading curves and trading envelopes, market impact and execution costs are needed.</p>
+<p>To compute trading curves and trading envelopes, market impact and execution costs are needed. We estimate the permanent impact parameter using one month (August 2024) of Binance SOLUSD_PERP perpetual futures data: tick-level <code>trades</code> (individual executions, signed by taker side) and <code>bookTicker</code> (best bid/ask snapshots), from which the mid-price process is reconstructed.</p>
 <div class="cell">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb1"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a>trades <span class="ot">&lt;-</span> <span class="fu">fread</span>(<span class="st">"data/SOLUSD_PERP-trades-2024-08.csv"</span>)</span>
 <span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>bookTicker <span class="ot">&lt;-</span> <span class="fu">fread</span>(<span class="st">"data/SOLUSD_PERP-bookTicker-2024-08.csv"</span>)</span>
@@ -170,6 +175,7 @@ window.Quarto = {
 <span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a><span class="fu">setorder</span>(trades, time)</span>
 <span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a><span class="fu">setorder</span>(bookTicker, transaction_time)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </div>
+<p>For each trade we attach the most recent mid-price observed before it (<code>pre_mid</code>) and the first mid-price observed after it (<code>post_mid</code>), so that the difference between the two isolates the price move associated with that trade (or a bar of trades) net of unrelated mid-price drift.</p>
 <div class="cell">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb2"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="fu">setkey</span>(bookTicker, transaction_time)</span>
 <span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>trades[, pre_mid <span class="sc">:</span><span class="er">=</span> bookTicker[trades, on <span class="ot">=</span> .(transaction_time <span class="sc">&lt;</span> time), mult <span class="ot">=</span> <span class="st">"last"</span>, .(mid_price)]<span class="sc">$</span>mid_price]</span>
@@ -177,14 +183,13 @@ window.Quarto = {
 </div>
 <p>The mid price of a stock is modeled by a process <span class="math display">\[
 d S_t = \sigma d W_t + k v_t dt
-\]</span> where <span class="math inline">\(\sigma\)</span> is a positive constant called the arithmetic volatility of the asset, and <span class="math inline">\(k\)</span> is the nonegative parameter modeling the magnitude of the permanent market impact.</p>
-<blockquote class="blockquote">
-<p>investigate how the trader’s own actions together with the order flow of other market participants affects the price of the assets she is trading.</p>
-</blockquote>
+\]</span> where <span class="math inline">\(\sigma\)</span> is a positive constant called the arithmetic volatility of the asset, and <span class="math inline">\(k\)</span> is the nonegative parameter modeling the magnitude of the <strong>permanent market impact</strong>.</p>
+<p>Integrating the drift term over a bar gives <span class="math inline">\(S_{t+\Delta} - S_t \approx k \sum_i v_i + \text{noise}\)</span>, so regressing a bar’s mid-price change (<code>price_diff</code>) on its net signed volume (<code>imbalance</code>) recovers <span class="math inline">\(k\)</span>, the permanent impact per unit of signed order flow, as the slope.</p>
+<p>Bars are constructed two ways to check that the estimate of <span class="math inline">\(k\)</span> is not an artifact of the sampling scheme: fixed 5-minute time bars, and volume bars that close every 5,000 units of <code>base_qty</code> traded.</p>
 <div class="cell">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb3"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a>trades[, sign <span class="sc">:</span><span class="er">=</span> <span class="fu">ifelse</span>(is_buyer_maker, <span class="sc">-</span><span class="dv">1</span>, <span class="dv">1</span>)]</span>
 <span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>trades[, sign_base_qty <span class="sc">:</span><span class="er">=</span> base_qty <span class="sc">*</span> sign]</span>
-<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>bars <span class="ot">&lt;-</span> trades[, .(</span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>bars_time <span class="ot">&lt;-</span> trades[, .(</span>
 <span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">imbalance =</span> <span class="fu">sum</span>(sign_base_qty),</span>
 <span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">base_qty =</span> <span class="fu">sum</span>(base_qty),</span>
 <span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">n_trades =</span> .N,</span>
@@ -192,59 +197,76 @@ d S_t = \sigma d W_t + k v_t dt
 <span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">pre_mid_price =</span> <span class="fu">first</span>(pre_mid),</span>
 <span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>  <span class="at">post_mid_price =</span> <span class="fu">last</span>(post_mid)</span>
 <span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a>), by <span class="ot">=</span> .(<span class="at">bin =</span> <span class="fu">floor_date</span>(ts, <span class="st">"5 minutes"</span>))]</span>
-<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a>bars[, std_dev <span class="sc">:</span><span class="er">=</span> <span class="fu">rollapply</span>(pre_mid_price, <span class="at">width =</span> <span class="dv">15</span>, <span class="at">FUN =</span> sd, <span class="at">fill =</span> <span class="cn">NA</span>, <span class="at">align =</span> <span class="st">"right"</span>)]</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a>bars_time[, std_dev <span class="sc">:</span><span class="er">=</span> <span class="fu">rollapply</span>(pre_mid_price, <span class="at">width =</span> <span class="dv">15</span>, <span class="at">FUN =</span> sd, <span class="at">fill =</span> <span class="cn">NA</span>, <span class="at">align =</span> <span class="st">"right"</span>)]</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </div>
 <div class="cell">
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb4"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a>q_std_dev <span class="ot">&lt;-</span> <span class="fu">quantile</span>(bars<span class="sc">$</span>std_dev, <span class="fl">0.995</span>, <span class="at">na.rm =</span> <span class="cn">TRUE</span>)</span>
-<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>q_imbalance_high <span class="ot">&lt;-</span> <span class="fu">quantile</span>(bars<span class="sc">$</span>imbalance, <span class="fl">0.995</span>, <span class="at">na.rm =</span> <span class="cn">TRUE</span>)</span>
-<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>q_imbalance_low <span class="ot">&lt;-</span> <span class="fu">quantile</span>(bars<span class="sc">$</span>imbalance, <span class="fl">0.005</span>, <span class="at">na.rm =</span> <span class="cn">TRUE</span>)</span>
-<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>bars <span class="ot">&lt;-</span> bars[std_dev <span class="sc">&lt;=</span> q_std_dev <span class="sc">&amp;</span> imbalance <span class="sc">&lt;=</span> q_imbalance_high <span class="sc">&amp;</span> imbalance <span class="sc">&gt;=</span> q_imbalance_low]</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb4"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Volume bars: group trades into buckets of 5000 base_qty traded</span></span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>trades[, cum_base_qty <span class="sc">:</span><span class="er">=</span> <span class="fu">cumsum</span>(base_qty)]</span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>trades[, vol_bin <span class="sc">:</span><span class="er">=</span> <span class="fu">floor</span>(cum_base_qty <span class="sc">/</span> <span class="dv">5000</span>)]</span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>bars_volume <span class="ot">&lt;-</span> trades[, .(</span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">imbalance =</span> <span class="fu">sum</span>(sign_base_qty),</span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">base_qty =</span> <span class="fu">sum</span>(base_qty),</span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">n_trades =</span> .N,</span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">price_diff =</span> <span class="fu">last</span>(post_mid) <span class="sc">-</span> <span class="fu">first</span>(pre_mid),</span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a>  <span class="at">pre_mid_price =</span> <span class="fu">first</span>(pre_mid),</span>
+<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a>  <span class="at">post_mid_price =</span> <span class="fu">last</span>(post_mid)</span>
+<span id="cb4-11"><a href="#cb4-11" aria-hidden="true" tabindex="-1"></a>), by <span class="ot">=</span> .(<span class="at">bin =</span> vol_bin)]</span>
+<span id="cb4-12"><a href="#cb4-12" aria-hidden="true" tabindex="-1"></a>bars_volume[, std_dev <span class="sc">:</span><span class="er">=</span> <span class="fu">rollapply</span>(pre_mid_price, <span class="at">width =</span> <span class="dv">15</span>, <span class="at">FUN =</span> sd, <span class="at">fill =</span> <span class="cn">NA</span>, <span class="at">align =</span> <span class="st">"right"</span>)]</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+<p>The top 5% of rolling volatility (<code>std_dev</code>) and top 5% of traded volume (<code>base_qty</code>) are dropped to exclude bars dominated by news or liquidation events, the top and bottom 5% of <code>imbalance</code> are dropped to limit outlier influence on the OLS fit, and bars with <code>abs(imbalance) &lt;= 1</code> (roughly below $100 notional) are dropped since they carry little order-flow information.</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb5"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a>filter_bars <span class="ot">&lt;-</span> <span class="cf">function</span>(bars) {</span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>  q_std_dev <span class="ot">&lt;-</span> <span class="fu">quantile</span>(bars<span class="sc">$</span>std_dev, <span class="fl">0.95</span>, <span class="at">na.rm =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>  q_base_qty <span class="ot">&lt;-</span> <span class="fu">quantile</span>(bars<span class="sc">$</span>base_qty, <span class="fl">0.95</span>, <span class="at">na.rm =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a>  q_imbalance_high <span class="ot">&lt;-</span> <span class="fu">quantile</span>(bars<span class="sc">$</span>imbalance, <span class="fl">0.95</span>, <span class="at">na.rm =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>  q_imbalance_low <span class="ot">&lt;-</span> <span class="fu">quantile</span>(bars<span class="sc">$</span>imbalance, <span class="fl">0.05</span>, <span class="at">na.rm =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a>  bars[</span>
+<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a>    std_dev <span class="sc">&lt;=</span> q_std_dev <span class="sc">&amp;</span></span>
+<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a>      base_qty <span class="sc">&lt;=</span> q_base_qty <span class="sc">&amp;</span></span>
+<span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a>      imbalance <span class="sc">&lt;=</span> q_imbalance_high <span class="sc">&amp;</span></span>
+<span id="cb5-10"><a href="#cb5-10" aria-hidden="true" tabindex="-1"></a>      imbalance <span class="sc">&gt;=</span> q_imbalance_low <span class="sc">&amp;</span></span>
+<span id="cb5-11"><a href="#cb5-11" aria-hidden="true" tabindex="-1"></a>      <span class="fu">abs</span>(imbalance) <span class="sc">&gt;</span> <span class="dv">1</span></span>
+<span id="cb5-12"><a href="#cb5-12" aria-hidden="true" tabindex="-1"></a>  ]</span>
+<span id="cb5-13"><a href="#cb5-13" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb5-14"><a href="#cb5-14" aria-hidden="true" tabindex="-1"></a>bars_time <span class="ot">&lt;-</span> <span class="fu">filter_bars</span>(bars_time)</span>
+<span id="cb5-15"><a href="#cb5-15" aria-hidden="true" tabindex="-1"></a>bars_volume <span class="ot">&lt;-</span> <span class="fu">filter_bars</span>(bars_volume)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </div>
 </section>
 <section id="regression" class="level1">
 <h1>Regression</h1>
+<p>The slope on <code>imbalance</code> estimates <span class="math inline">\(k\)</span>; its significance and the <span class="math inline">\(R^2\)</span> indicate how much of the bar-level mid-price change is explained by signed order flow alone.</p>
+<section id="time-bars-5-minutes" class="level2">
+<h2 class="anchored" data-anchor-id="time-bars-5-minutes">Time Bars (5 minutes)</h2>
 <div class="cell">
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb5"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a>fitted <span class="ot">&lt;-</span> <span class="fu">lm</span>(price_diff <span class="sc">~</span> imbalance, bars)</span>
-<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a><span class="fu">summary</span>(fitted)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb6"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a>fitted_time <span class="ot">&lt;-</span> <span class="fu">lm</span>(price_diff <span class="sc">~</span> imbalance <span class="sc">+</span> <span class="dv">0</span>, bars_time)</span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a><span class="fu">summary</span>(fitted_time)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output cell-output-stdout">
 <pre><code>
 Call:
-lm(formula = price_diff ~ imbalance, data = bars)
+lm(formula = price_diff ~ imbalance + 0, data = bars_time)
 
 Residuals:
      Min       1Q   Median       3Q      Max 
--2.91825 -0.17697 -0.00934  0.16921  2.94785 
+-2.60061 -0.14075  0.01043  0.17450  1.87353 
 
 Coefficients:
-             Estimate Std. Error t value Pr(&gt;|t|)    
-(Intercept) 2.286e-02  3.932e-03   5.814 6.32e-09 ***
-imbalance   1.234e-04  2.117e-06  58.256  &lt; 2e-16 ***
+           Estimate Std. Error t value Pr(&gt;|t|)    
+imbalance 1.502e-04  3.394e-06   44.26   &lt;2e-16 ***
 ---
 Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
 
-Residual standard error: 0.3652 on 8786 degrees of freedom
-Multiple R-squared:  0.2786,    Adjusted R-squared:  0.2786 
-F-statistic:  3394 on 1 and 8786 DF,  p-value: &lt; 2.2e-16</code></pre>
+Residual standard error: 0.2956 on 7668 degrees of freedom
+Multiple R-squared:  0.2035,    Adjusted R-squared:  0.2034 
+F-statistic:  1959 on 1 and 7668 DF,  p-value: &lt; 2.2e-16</code></pre>
 </div>
 </div>
 <div class="cell">
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb7"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="fu">ggplot</span>(bars, <span class="fu">aes</span>(<span class="at">x =</span> bin, <span class="at">y =</span> std_dev)) <span class="sc">+</span></span>
-<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_line</span>() <span class="sc">+</span></span>
-<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(<span class="at">title =</span> <span class="st">"Rolling Standard Deviation"</span>, <span class="at">x =</span> <span class="st">"Time"</span>, <span class="at">y =</span> <span class="st">"Std Dev"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
-<div class="cell-output-display">
-<div>
-<figure class="figure">
-<p><img src="estimation_of_market_impact_files/figure-html/unnamed-chunk-7-1.png" class="img-fluid figure-img" width="672"></p>
-</figure>
-</div>
-</div>
-</div>
-<div class="cell">
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb8"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="fu">ggplot</span>(bars, <span class="fu">aes</span>(<span class="at">x =</span> imbalance, <span class="at">y =</span> price_diff)) <span class="sc">+</span></span>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb8"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="fu">ggplot</span>(bars_time, <span class="fu">aes</span>(<span class="at">x =</span> imbalance, <span class="at">y =</span> price_diff)) <span class="sc">+</span></span>
 <span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_point</span>(<span class="at">alpha =</span> <span class="fl">0.3</span>) <span class="sc">+</span></span>
 <span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_smooth</span>(<span class="at">method =</span> <span class="st">"lm"</span>, <span class="at">color =</span> <span class="st">"red"</span>, <span class="at">se =</span> <span class="cn">TRUE</span>) <span class="sc">+</span></span>
-<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(<span class="at">title =</span> <span class="st">"Price Diff vs Imbalance"</span>,</span>
-<span id="cb8-5"><a href="#cb8-5" aria-hidden="true" tabindex="-1"></a>       <span class="at">x =</span> <span class="st">"Imbalance"</span>, <span class="at">y =</span> <span class="st">"Price Diff"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(<span class="at">title =</span> <span class="st">"Price Diff vs Imbalance (Time Bars)"</span>,</span>
+<span id="cb8-5"><a href="#cb8-5" aria-hidden="true" tabindex="-1"></a>       <span class="at">x =</span> <span class="st">"Imbalance"</span>, <span class="at">y =</span> <span class="st">"Price Diff"</span>) <span class="sc">+</span></span>
+<span id="cb8-6"><a href="#cb8-6" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_minimal</span>()</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output cell-output-stderr">
 <pre><code>`geom_smooth()` using formula = 'y ~ x'</code></pre>
 </div>
@@ -256,6 +278,55 @@ F-statistic:  3394 on 1 and 8786 DF,  p-value: &lt; 2.2e-16</code></pre>
 </div>
 </div>
 </div>
+</section>
+<section id="volume-bars-5000-base_qty" class="level2">
+<h2 class="anchored" data-anchor-id="volume-bars-5000-base_qty">Volume Bars (5000 base_qty)</h2>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb10"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a>fitted_volume <span class="ot">&lt;-</span> <span class="fu">lm</span>(price_diff <span class="sc">~</span> imbalance <span class="sc">+</span> <span class="dv">0</span>, bars_volume)</span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a><span class="fu">summary</span>(fitted_volume)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>
+Call:
+lm(formula = price_diff ~ imbalance + 0, data = bars_volume)
+
+Residuals:
+     Min       1Q   Median       3Q      Max 
+-1.46156 -0.21634  0.02968  0.28198  1.62828 
+
+Coefficients:
+           Estimate Std. Error t value Pr(&gt;|t|)    
+imbalance 1.678e-04  3.298e-06    50.9   &lt;2e-16 ***
+---
+Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
+
+Residual standard error: 0.3799 on 8667 degrees of freedom
+Multiple R-squared:  0.2301,    Adjusted R-squared:   0.23 
+F-statistic:  2590 on 1 and 8667 DF,  p-value: &lt; 2.2e-16</code></pre>
+</div>
+</div>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb12"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="fu">ggplot</span>(bars_volume, <span class="fu">aes</span>(<span class="at">x =</span> imbalance, <span class="at">y =</span> price_diff)) <span class="sc">+</span></span>
+<span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_point</span>(<span class="at">alpha =</span> <span class="fl">0.3</span>) <span class="sc">+</span></span>
+<span id="cb12-3"><a href="#cb12-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_smooth</span>(<span class="at">method =</span> <span class="st">"lm"</span>, <span class="at">color =</span> <span class="st">"red"</span>, <span class="at">se =</span> <span class="cn">TRUE</span>) <span class="sc">+</span></span>
+<span id="cb12-4"><a href="#cb12-4" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(<span class="at">title =</span> <span class="st">"Price Diff vs Imbalance (Volume Bars)"</span>,</span>
+<span id="cb12-5"><a href="#cb12-5" aria-hidden="true" tabindex="-1"></a>       <span class="at">x =</span> <span class="st">"Imbalance"</span>, <span class="at">y =</span> <span class="st">"Price Diff"</span>) <span class="sc">+</span></span>
+<span id="cb12-6"><a href="#cb12-6" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_minimal</span>()</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stderr">
+<pre><code>`geom_smooth()` using formula = 'y ~ x'</code></pre>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="estimation_of_market_impact_files/figure-html/unnamed-chunk-10-1.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+</div>
+</section>
+</section>
+<section id="conclusion" class="level1">
+<h1>Conclusion</h1>
+<p>The estimated permanent impact coefficient <span class="math inline">\(k\)</span> (the slope on <code>imbalance</code>) is <span class="math inline">\(1.5 \times 10^{-4}\)</span> for the time-bar specification and <span class="math inline">\(1.68 \times 10^{-4}\)</span> for the volume-bar specification. A stable, significant slope on <code>imbalance</code> across both the time-bar and volume-bar specifications would indicate a genuine permanent impact coefficient <span class="math inline">\(k\)</span> rather than an artifact of the chosen bar construction.</p>
 </section>
 
 </main>
