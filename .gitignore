@@ -48,9 +48,6 @@ po/*~
 # RStudio Connect folder
 rsconnect/
 
-# Folders ending with _files
-*_files/
-
 # Data folder
 *data/
 
