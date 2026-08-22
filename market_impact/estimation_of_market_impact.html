@@ -1,0 +1,815 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><head>
+
+<meta charset="utf-8">
+<meta name="generator" content="quarto-1.9.38">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+
+<meta name="author" content="Raj Kundi">
+<meta name="dcterms.date" content="2026-08-22">
+
+<title>Estimation of Market Impact</title>
+<style>
+/* Default styles provided by pandoc.
+** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+*/
+code{white-space: pre-wrap;}
+span.smallcaps{font-variant: small-caps;}
+div.columns{display: flex; gap: min(4vw, 1.5em);}
+div.column{flex: auto; overflow-x: auto;}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+ul.task-list{list-style: none;}
+ul.task-list li input[type="checkbox"] {
+  width: 0.8em;
+  margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */ 
+  vertical-align: middle;
+}
+/* CSS for syntax highlighting */
+html { -webkit-text-size-adjust: 100%; }
+pre > code.sourceCode { white-space: pre; position: relative; }
+pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+pre > code.sourceCode > span:empty { height: 1.2em; }
+.sourceCode { overflow: visible; }
+code.sourceCode > span { color: inherit; text-decoration: inherit; }
+div.sourceCode { margin: 1em 0; }
+pre.sourceCode { margin: 0; }
+@media screen {
+div.sourceCode { overflow: auto; }
+}
+@media print {
+pre > code.sourceCode { white-space: pre-wrap; }
+pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+}
+pre.numberSource code
+  { counter-reset: source-line 0; }
+pre.numberSource code > span
+  { position: relative; left: -4em; counter-increment: source-line; }
+pre.numberSource code > span > a:first-child::before
+  { content: counter(source-line);
+    position: relative; left: -1em; text-align: right; vertical-align: baseline;
+    border: none; display: inline-block;
+    -webkit-touch-callout: none; -webkit-user-select: none;
+    -khtml-user-select: none; -moz-user-select: none;
+    -ms-user-select: none; user-select: none;
+    padding: 0 4px; width: 4em;
+  }
+pre.numberSource { margin-left: 3em;  padding-left: 4px; }
+div.sourceCode
+  {   }
+@media screen {
+pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+}
+</style>
+
+
+<script src="estimation_of_market_impact_files/libs/clipboard/clipboard.min.js"></script>
+<script src="estimation_of_market_impact_files/libs/quarto-html/quarto.js" type="module"></script>
+<script src="estimation_of_market_impact_files/libs/quarto-html/tabsets/tabsets.js" type="module"></script>
+<script src="estimation_of_market_impact_files/libs/quarto-html/popper.min.js"></script>
+<script src="estimation_of_market_impact_files/libs/quarto-html/tippy.umd.min.js"></script>
+<script src="estimation_of_market_impact_files/libs/quarto-html/anchor.min.js"></script>
+<link href="estimation_of_market_impact_files/libs/quarto-html/tippy.css" rel="stylesheet">
+<link href="estimation_of_market_impact_files/libs/quarto-html/quarto-syntax-highlighting-15634bcf2e68342d4ad2dfa704d543f6.css" rel="stylesheet" id="quarto-text-highlighting-styles">
+<script src="estimation_of_market_impact_files/libs/bootstrap/bootstrap.min.js"></script>
+<link href="estimation_of_market_impact_files/libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
+<link href="estimation_of_market_impact_files/libs/bootstrap/bootstrap-efbb37e9afcc02144ebbc7afd12a776f.min.css" rel="stylesheet" append-hash="true" id="quarto-bootstrap" data-mode="light">
+
+  <script src="https://cdnjs.cloudflare.com/polyfill/v3/polyfill.min.js?features=es6"></script>
+  <script defer="" src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml-full.js" type="text/javascript"></script>
+
+<script type="text/javascript">
+const typesetMath = (el) => {
+  if (window.MathJax) {
+    // MathJax Typeset
+    window.MathJax.typeset([el]);
+  } else if (window.katex) {
+    // KaTeX Render
+    var mathElements = el.getElementsByClassName("math");
+    var macros = [];
+    for (var i = 0; i < mathElements.length; i++) {
+      var texText = mathElements[i].firstChild;
+      if (mathElements[i].tagName == "SPAN" && texText && texText.data) {
+        window.katex.render(texText.data, mathElements[i], {
+          displayMode: mathElements[i].classList.contains('display'),
+          throwOnError: false,
+          macros: macros,
+          fleqn: false
+        });
+      }
+    }
+  }
+}
+window.Quarto = {
+  typesetMath
+};
+</script>
+
+</head>
+
+<body class="quarto-light">
+
+<div id="quarto-content" class="page-columns page-rows-contents page-layout-article">
+<div id="quarto-margin-sidebar" class="sidebar margin-sidebar">
+  <nav id="TOC" role="doc-toc" class="toc-active">
+    <h2 id="toc-title">Table of contents</h2>
+   
+  <ul>
+  <li><a href="#introduction" id="toc-introduction" class="nav-link active" data-scroll-target="#introduction">Introduction</a></li>
+  <li><a href="#parameters" id="toc-parameters" class="nav-link" data-scroll-target="#parameters">Parameters</a></li>
+  <li><a href="#outlier-filtering" id="toc-outlier-filtering" class="nav-link" data-scroll-target="#outlier-filtering">Outlier Filtering</a></li>
+  <li><a href="#time-based-bars" id="toc-time-based-bars" class="nav-link" data-scroll-target="#time-based-bars">Time-Based Bars</a>
+  <ul class="collapse">
+  <li><a href="#constructing-bars" id="toc-constructing-bars" class="nav-link" data-scroll-target="#constructing-bars">Constructing bars</a></li>
+  <li><a href="#filtering" id="toc-filtering" class="nav-link" data-scroll-target="#filtering">Filtering</a></li>
+  <li><a href="#regression" id="toc-regression" class="nav-link" data-scroll-target="#regression">Regression</a></li>
+  <li><a href="#diagnostic-plots" id="toc-diagnostic-plots" class="nav-link" data-scroll-target="#diagnostic-plots">Diagnostic plots</a></li>
+  </ul></li>
+  <li><a href="#volume-based-bars" id="toc-volume-based-bars" class="nav-link" data-scroll-target="#volume-based-bars">Volume-Based Bars</a>
+  <ul class="collapse">
+  <li><a href="#constructing-bars-1" id="toc-constructing-bars-1" class="nav-link" data-scroll-target="#constructing-bars-1">Constructing bars</a></li>
+  <li><a href="#filtering-1" id="toc-filtering-1" class="nav-link" data-scroll-target="#filtering-1">Filtering</a></li>
+  <li><a href="#regression-1" id="toc-regression-1" class="nav-link" data-scroll-target="#regression-1">Regression</a></li>
+  <li><a href="#diagnostic-plots-1" id="toc-diagnostic-plots-1" class="nav-link" data-scroll-target="#diagnostic-plots-1">Diagnostic plots</a></li>
+  </ul></li>
+  <li><a href="#conclusion" id="toc-conclusion" class="nav-link" data-scroll-target="#conclusion">Conclusion</a></li>
+  </ul>
+</nav>
+</div>
+<main class="content" id="quarto-document-content">
+
+<header id="title-block-header" class="quarto-title-block default">
+<div class="quarto-title">
+<h1 class="title">Estimation of Market Impact</h1>
+</div>
+
+
+
+<div class="quarto-title-meta">
+
+    <div>
+    <div class="quarto-title-meta-heading">Author</div>
+    <div class="quarto-title-meta-contents">
+             <p>Raj Kundi </p>
+          </div>
+  </div>
+    
+    <div>
+    <div class="quarto-title-meta-heading">Published</div>
+    <div class="quarto-title-meta-contents">
+      <p class="date">August 22, 2026</p>
+    </div>
+  </div>
+  
+    
+  </div>
+  
+
+
+</header>
+
+
+<section id="introduction" class="level1">
+<h1>Introduction</h1>
+<p>To compute trading curves and trading envelopes pre-trade estimates of market impact and execution costs are needed.</p>
+<p>We use a trades tape and the L1 orderbook ticker data for SOLUSD_PERP on binance, covering 2024-01 through 2024-09. For every trade, we align the book ticker data with the trades and record the observed pre-trade mid-price (<code>pre_mid</code>) and post trade mid-price (<code>post_mid</code>). These pre- and post- mid-price observations are used to determine the price impact of a trade.</p>
+<p>Note: We could also assess if the order rode the book be adding the pre-book metrics and post_book metrics and see if the best bid or ask price changed.</p>
+<p>The raw trades and book ticker files for this range total around 60GB, too much to load into memory in one go. <code>build_bars.R</code> builds the time- and volume-based bars described below one month’s files at a time (aligning trades with the book ticker, signing trades, and aggregating into bars), discarding each month’s raw data before moving to the next, and writes the combined, multi-month bars to <code>data/bars/</code>. Run it once (<code>Rscript build_bars.R</code>, from this directory) whenever the parameters in <code>bar_params.R</code> change or new monthly data is added; this document then just loads its output.</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb1"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="fu">source</span>(<span class="st">"bar_params.R"</span>)</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>bars_time_raw <span class="ot">&lt;-</span> <span class="fu">readRDS</span>(<span class="st">"data/bars/bars_time_raw.rds"</span>)</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>bars_volume_raw <span class="ot">&lt;-</span> <span class="fu">readRDS</span>(<span class="st">"data/bars/bars_volume_raw.rds"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+<p>The mid price of a stock is modeled by a process <span class="math display">\[
+d S_t = \sigma d W_t + k v_t dt
+\]</span> where <span class="math inline">\(\sigma\)</span> is a positive constant called the <em>arithmetic volatility</em> of the asset, and <span class="math inline">\(k\)</span> is the nonegative parameter modeling the magnitude of the <em>permanent market impact</em>.</p>
+<blockquote class="blockquote">
+<p>Goal: Investigate how the trader’s own actions together with the order flow of other market participants affects the price of the assets she is trading.</p>
+</blockquote>
+<p>Under this model, the price change observed over a bar should be proportional to the signed order flow (“imbalance”) that traded during that bar, with the constant of proportionality being an estimate of <span class="math inline">\(k\)</span>. Every trade is signed using the taker’s side: a trade where the buyer was the maker (<code>is_buyer_maker == TRUE</code>) was initiated by a seller, so it is assigned a sign of <span class="math inline">\(-1\)</span>; otherwise it was initiated by a buyer and gets a sign of <span class="math inline">\(+1\)</span>. <code>sign_base_qty</code> (computed in <code>build_bars.R</code>) is the signed traded volume of a single trade, and summing it over a bar gives that bar’s order flow imbalance (<code>imbalance</code>, already present in the bars loaded above).</p>
+</section>
+<section id="parameters" class="level1">
+<h1>Parameters</h1>
+<p>The two aggregation schemes below (fixed time bars and fixed volume bars) are controlled by the parameters in <code>bar_params.R</code> (<code>bar_interval</code>, <code>volume_bin_size</code>, <code>std_dev_window</code>, loaded above), which is shared with <code>build_bars.R</code> so this report always describes the bars that were actually built. The outlier filtering applied to both schemes is controlled by the parameters below, which only affect this document and can be tuned without rebuilding the bars.</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb2"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Outlier filtering thresholds (see "Outlier Filtering" section below).</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="co"># Fraction of bars trimmed from the extreme end of the buy-side and of the</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="co"># sell-side imbalance distributions (each side trimmed independently).</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>imbalance_trim_pct <span class="ot">&lt;-</span> <span class="fl">0.05</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a><span class="co"># Fraction of bars trimmed from the top of the rolling standard deviation</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a><span class="co"># distribution.</span></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>std_dev_trim_pct <span class="ot">&lt;-</span> <span class="fl">0.01</span></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a><span class="co"># Fraction of bars trimmed from the top of the traded volume (base_qty)</span></span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a><span class="co"># distribution.</span></span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>base_qty_trim_pct <span class="ot">&lt;-</span> <span class="fl">0.05</span></span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a><span class="co"># Minimum absolute order-flow imbalance (in base asset units) required to</span></span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a><span class="co"># keep a bar. Binance enforces a minimum order size on SOLUSD_PERP</span></span>
+<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a><span class="co"># (0.01 SOL), so bars whose net imbalance is only a few multiples of that</span></span>
+<span id="cb2-17"><a href="#cb2-17" aria-hidden="true" tabindex="-1"></a><span class="co"># minimum are dominated by order-size rounding rather than genuine signed</span></span>
+<span id="cb2-18"><a href="#cb2-18" aria-hidden="true" tabindex="-1"></a><span class="co"># flow, and are dropped as noise.</span></span>
+<span id="cb2-19"><a href="#cb2-19" aria-hidden="true" tabindex="-1"></a>min_imbalance <span class="ot">&lt;-</span> <span class="fl">1.0</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+</section>
+<section id="outlier-filtering" class="level1">
+<h1>Outlier Filtering</h1>
+<p>Bars with extreme order-flow imbalance, extreme local volatility, or extreme traded volume can dominate an unweighted least-squares fit and distort the estimate of <span class="math inline">\(k\)</span>, so they are removed before fitting.</p>
+<p>Four trims are applied:</p>
+<ul>
+<li>Imbalance: the buy side (<code>imbalance &gt;= 0</code>) and the sell side (<code>imbalance &lt; 0</code>) are trimmed <em>separately</em>, each by <code>imbalance_trim_pct</code>, since the two sides need not be symmetric (e.g.&nbsp;a strong upward drift in the sample would otherwise make one side look more “extreme” than the other purely because of its longer tail).</li>
+<li>Rolling standard deviation: bars whose local mid-price volatility is in the top <code>std_dev_trim_pct</code> are dropped, since these bars are more likely to reflect a regime change (e.g.&nbsp;a news event) rather than the steady-state relationship between order flow and price we’re trying to estimate.</li>
+<li>Traded volume (<code>base_qty</code>): bars whose total traded volume is in the top <code>base_qty_trim_pct</code> are dropped, since unusually large bars are more likely to coincide with the volatility and imbalance extremes above.</li>
+<li>Minimum imbalance: bars whose absolute net imbalance is below <code>min_imbalance</code> are dropped. Binance’s minimum order size on this instrument means very small net imbalances are largely order-size rounding noise rather than a meaningful signal of order flow, so including them would just add noise to the regression rather than information.</li>
+</ul>
+<p>These outliers are expected to overlap substantially (a bar with an extreme imbalance is also likely to have high traded volume, for example), so all four cutoffs are computed from the <em>same, unfiltered</em> set of bars and applied together in a single pass, rather than sequentially (which would otherwise shift later cutoffs based on what earlier trims had already removed).</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb3"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a>trim_extreme_bars <span class="ot">&lt;-</span> <span class="cf">function</span>(bars,</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>                               imbalance_trim_pct,</span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>                               std_dev_trim_pct,</span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>                               base_qty_trim_pct,</span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>                               min_imbalance) {</span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>  buy_side_imbalance <span class="ot">&lt;-</span> bars<span class="sc">$</span>imbalance[bars<span class="sc">$</span>imbalance <span class="sc">&gt;=</span> <span class="dv">0</span>]</span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>  sell_side_imbalance <span class="ot">&lt;-</span> bars<span class="sc">$</span>imbalance[bars<span class="sc">$</span>imbalance <span class="sc">&lt;</span> <span class="dv">0</span>]</span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>  <span class="co"># Upper cutoff for the buy side and lower cutoff for the sell side, each</span></span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a>  <span class="co"># computed within its own side of the distribution.</span></span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a>  imbalance_high <span class="ot">&lt;-</span> <span class="fu">quantile</span>(buy_side_imbalance, <span class="dv">1</span> <span class="sc">-</span> imbalance_trim_pct, <span class="at">na.rm =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a>  imbalance_low <span class="ot">&lt;-</span> <span class="fu">quantile</span>(sell_side_imbalance, imbalance_trim_pct, <span class="at">na.rm =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a>  std_dev_high <span class="ot">&lt;-</span> <span class="fu">quantile</span>(bars<span class="sc">$</span>std_dev, <span class="dv">1</span> <span class="sc">-</span> std_dev_trim_pct, <span class="at">na.rm =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb3-15"><a href="#cb3-15" aria-hidden="true" tabindex="-1"></a>  base_qty_high <span class="ot">&lt;-</span> <span class="fu">quantile</span>(bars<span class="sc">$</span>base_qty, <span class="dv">1</span> <span class="sc">-</span> base_qty_trim_pct, <span class="at">na.rm =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb3-16"><a href="#cb3-16" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-17"><a href="#cb3-17" aria-hidden="true" tabindex="-1"></a>  <span class="co"># All conditions are combined into a single logical mask and applied in</span></span>
+<span id="cb3-18"><a href="#cb3-18" aria-hidden="true" tabindex="-1"></a>  <span class="co"># one pass. Bars with an NA rolling standard deviation (the first</span></span>
+<span id="cb3-19"><a href="#cb3-19" aria-hidden="true" tabindex="-1"></a>  <span class="co"># std_dev_window - 1 bars, before the rolling window is full) are dropped</span></span>
+<span id="cb3-20"><a href="#cb3-20" aria-hidden="true" tabindex="-1"></a>  <span class="co"># as a side effect, since they cannot be evaluated against the std_dev</span></span>
+<span id="cb3-21"><a href="#cb3-21" aria-hidden="true" tabindex="-1"></a>  <span class="co"># cutoff.</span></span>
+<span id="cb3-22"><a href="#cb3-22" aria-hidden="true" tabindex="-1"></a>  keep <span class="ot">&lt;-</span> bars<span class="sc">$</span>imbalance <span class="sc">&lt;=</span> imbalance_high <span class="sc">&amp;</span></span>
+<span id="cb3-23"><a href="#cb3-23" aria-hidden="true" tabindex="-1"></a>    bars<span class="sc">$</span>imbalance <span class="sc">&gt;=</span> imbalance_low <span class="sc">&amp;</span></span>
+<span id="cb3-24"><a href="#cb3-24" aria-hidden="true" tabindex="-1"></a>    bars<span class="sc">$</span>std_dev <span class="sc">&lt;=</span> std_dev_high <span class="sc">&amp;</span></span>
+<span id="cb3-25"><a href="#cb3-25" aria-hidden="true" tabindex="-1"></a>    bars<span class="sc">$</span>base_qty <span class="sc">&lt;=</span> base_qty_high <span class="sc">&amp;</span></span>
+<span id="cb3-26"><a href="#cb3-26" aria-hidden="true" tabindex="-1"></a>    <span class="fu">abs</span>(bars<span class="sc">$</span>imbalance) <span class="sc">&gt;=</span> min_imbalance</span>
+<span id="cb3-27"><a href="#cb3-27" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-28"><a href="#cb3-28" aria-hidden="true" tabindex="-1"></a>  bars[keep]</span>
+<span id="cb3-29"><a href="#cb3-29" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+</section>
+<section id="time-based-bars" class="level1">
+<h1>Time-Based Bars</h1>
+<section id="constructing-bars" class="level2">
+<h2 class="anchored" data-anchor-id="constructing-bars">Constructing bars</h2>
+<p>Trades are grouped into fixed-width wall-clock bars of length <code>bar_interval</code>. For each bar we compute the net signed order flow (<code>imbalance</code>), the total traded volume (<code>base_qty</code>), the number of trades, and the price move over the bar (<code>price_diff</code>), defined as the post-trade mid-price after the last trade in the bar minus the pre-trade mid-price before the first trade in the bar. A trailing rolling standard deviation of the pre-trade mid-price is used as a proxy for the local volatility regime of each bar, and is one of the inputs to the outlier filter above. This is built by <code>build_bars.R</code> (see “Introduction”) and loaded as <code>bars_time_raw</code> above.</p>
+</section>
+<section id="filtering" class="level2">
+<h2 class="anchored" data-anchor-id="filtering">Filtering</h2>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb4"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a>bars_time <span class="ot">&lt;-</span> <span class="fu">trim_extreme_bars</span>(</span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>  bars_time_raw,</span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">imbalance_trim_pct =</span> imbalance_trim_pct,</span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">std_dev_trim_pct =</span> std_dev_trim_pct,</span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">base_qty_trim_pct =</span> base_qty_trim_pct,</span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">min_imbalance =</span> min_imbalance</span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+<p>Filtering removed 800950 of the 4051139 time bars (19.8%), leaving 3250189 bars for the regression below.</p>
+</section>
+<section id="regression" class="level2">
+<h2 class="anchored" data-anchor-id="regression">Regression</h2>
+<p>The permanent impact parameter <span class="math inline">\(k\)</span> is estimated by regressing the bar’s price move on its signed order flow, with no intercept, since the model above has no drift term independent of order flow.</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb5"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a>fit_time <span class="ot">&lt;-</span> <span class="fu">lm</span>(price_diff <span class="sc">~</span> imbalance <span class="sc">+</span> <span class="dv">0</span>, bars_time)</span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a><span class="fu">summary</span>(fit_time)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>
+Call:
+lm(formula = price_diff ~ imbalance + 0, data = bars_time)
+
+Residuals:
+     Min       1Q   Median       3Q      Max 
+-0.55715 -0.01602  0.00015  0.01660  0.59428 
+
+Coefficients:
+           Estimate Std. Error t value Pr(&gt;|t|)    
+imbalance 3.176e-04  2.850e-07    1114   &lt;2e-16 ***
+---
+Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
+
+Residual standard error: 0.03892 on 3250188 degrees of freedom
+Multiple R-squared:  0.2764,    Adjusted R-squared:  0.2764 
+F-statistic: 1.242e+06 on 1 and 3250188 DF,  p-value: &lt; 2.2e-16</code></pre>
+</div>
+</div>
+</section>
+<section id="diagnostic-plots" class="level2">
+<h2 class="anchored" data-anchor-id="diagnostic-plots">Diagnostic plots</h2>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb7"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="fu">ggplot</span>(bars_time, <span class="fu">aes</span>(<span class="at">x =</span> imbalance, <span class="at">y =</span> price_diff)) <span class="sc">+</span></span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_point</span>(<span class="at">alpha =</span> <span class="fl">0.3</span>) <span class="sc">+</span></span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_smooth</span>(<span class="at">method =</span> <span class="st">"lm"</span>, <span class="at">color =</span> <span class="st">"red"</span>, <span class="at">se =</span> <span class="cn">TRUE</span>) <span class="sc">+</span></span>
+<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(<span class="at">title =</span> <span class="st">"Price Diff vs Imbalance (Time Bars)"</span>,</span>
+<span id="cb7-5"><a href="#cb7-5" aria-hidden="true" tabindex="-1"></a>       <span class="at">x =</span> <span class="st">"Imbalance"</span>, <span class="at">y =</span> <span class="st">"Price Diff"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stderr">
+<pre><code>`geom_smooth()` using formula = 'y ~ x'</code></pre>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="estimation_of_market_impact_files/figure-html/unnamed-chunk-7-1.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+</div>
+</section>
+</section>
+<section id="volume-based-bars" class="level1">
+<h1>Volume-Based Bars</h1>
+<section id="constructing-bars-1" class="level2">
+<h2 class="anchored" data-anchor-id="constructing-bars-1">Constructing bars</h2>
+<p>As a robustness check on the time-based bars, we repeat the analysis using fixed-volume bars instead of fixed-time bars: trades are grouped so that each bin contains approximately <code>volume_bin_size</code> units of traded volume, regardless of how long that takes. This removes the effect of time-varying trading activity (bars during quiet periods no longer span much more wall clock time than bars during busy periods) and provides a second, largely independent estimate of <span class="math inline">\(k\)</span>. Volume bins are sized independently within each month’s data (see <code>build_bars.R</code>), since each month is processed on its own; this is loaded as <code>bars_volume_raw</code> above.</p>
+</section>
+<section id="filtering-1" class="level2">
+<h2 class="anchored" data-anchor-id="filtering-1">Filtering</h2>
+<p>The same simultaneous filtering rule used for the time bars is applied here, with the same parameters, for consistency between the two approaches.</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb9"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a>bars_volume <span class="ot">&lt;-</span> <span class="fu">trim_extreme_bars</span>(</span>
+<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a>  bars_volume_raw,</span>
+<span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">imbalance_trim_pct =</span> imbalance_trim_pct,</span>
+<span id="cb9-4"><a href="#cb9-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">std_dev_trim_pct =</span> std_dev_trim_pct,</span>
+<span id="cb9-5"><a href="#cb9-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">base_qty_trim_pct =</span> base_qty_trim_pct,</span>
+<span id="cb9-6"><a href="#cb9-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">min_imbalance =</span> min_imbalance</span>
+<span id="cb9-7"><a href="#cb9-7" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+<p>Filtering removed 9940 of the 95081 volume bars (10.5%), leaving 85141 bars for the regression below.</p>
+</section>
+<section id="regression-1" class="level2">
+<h2 class="anchored" data-anchor-id="regression-1">Regression</h2>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb10"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a>fit_volume <span class="ot">&lt;-</span> <span class="fu">lm</span>(price_diff <span class="sc">~</span> imbalance <span class="sc">+</span> <span class="dv">0</span>, bars_volume)</span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a><span class="fu">summary</span>(fit_volume)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>
+Call:
+lm(formula = price_diff ~ imbalance + 0, data = bars_volume)
+
+Residuals:
+    Min      1Q  Median      3Q     Max 
+-1.9755 -0.1960  0.0184  0.2382  3.6907 
+
+Coefficients:
+           Estimate Std. Error t value Pr(&gt;|t|)    
+imbalance 1.610e-04  9.897e-07   162.7   &lt;2e-16 ***
+---
+Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
+
+Residual standard error: 0.3442 on 85140 degrees of freedom
+Multiple R-squared:  0.2372,    Adjusted R-squared:  0.2372 
+F-statistic: 2.648e+04 on 1 and 85140 DF,  p-value: &lt; 2.2e-16</code></pre>
+</div>
+</div>
+</section>
+<section id="diagnostic-plots-1" class="level2">
+<h2 class="anchored" data-anchor-id="diagnostic-plots-1">Diagnostic plots</h2>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb12"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="fu">ggplot</span>(bars_volume, <span class="fu">aes</span>(<span class="at">x =</span> imbalance, <span class="at">y =</span> price_diff)) <span class="sc">+</span></span>
+<span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_point</span>(<span class="at">alpha =</span> <span class="fl">0.3</span>) <span class="sc">+</span></span>
+<span id="cb12-3"><a href="#cb12-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_smooth</span>(<span class="at">method =</span> <span class="st">"lm"</span>, <span class="at">color =</span> <span class="st">"red"</span>, <span class="at">se =</span> <span class="cn">TRUE</span>) <span class="sc">+</span></span>
+<span id="cb12-4"><a href="#cb12-4" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(<span class="at">title =</span> <span class="st">"Price Diff vs Imbalance (Volume Bars)"</span>,</span>
+<span id="cb12-5"><a href="#cb12-5" aria-hidden="true" tabindex="-1"></a>       <span class="at">x =</span> <span class="st">"Imbalance"</span>, <span class="at">y =</span> <span class="st">"Price Diff"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stderr">
+<pre><code>`geom_smooth()` using formula = 'y ~ x'</code></pre>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="estimation_of_market_impact_files/figure-html/unnamed-chunk-10-1.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+</div>
+</section>
+</section>
+<section id="conclusion" class="level1">
+<h1>Conclusion</h1>
+<p>Regressing bar-level price moves on signed order flow, with no intercept, gives an estimate of the permanent impact parameter <span class="math inline">\(k\)</span> of 3.176e-04 from the time-based bars (<code>bar_interval</code> = 5 seconds) and 1.610e-04 from the volume-based bars (<code>volume_bin_size</code> = 5000). Both coefficients are positive, consistent with the model: net buying pressure pushes the mid-price up and net selling pressure pushes it down.</p>
+<p>The two aggregation schemes agree in sign and order of magnitude, which is a useful cross-check since they bin the same underlying trades in different ways (fixed wall-clock time vs.&nbsp;fixed traded volume) and are therefore not subject to exactly the same biases. The time-based fit explains 27.6% of the variation in price moves (<span class="math inline">\(R^2\)</span>), while the volume-based fit explains 23.7%. Neither is particularly high, which is expected: order flow imbalance is only one driver of short-horizon price moves, alongside idiosyncratic noise and any other volatility not captured here.</p>
+<p>A few caveats are worth keeping in mind when using these estimates:</p>
+<ul>
+<li>The sample covers a single instrument (<code>SOLUSD_PERP</code>) over 2024-01 through 2024-09, so <span class="math inline">\(k\)</span> should be treated as specific to that regime rather than a universal constant; it should be re-estimated if used for a materially different period, instrument, or liquidity regime.</li>
+<li>The outlier filter removes bars in the extreme tails of imbalance, volatility, and traded volume simultaneously, and also drops bars whose net imbalance is too small to be distinguishable from Binance’s minimum order size (<code>min_imbalance</code>). This makes the fitted <span class="math inline">\(k\)</span> representative of “typical” trading conditions, but means it may understate impact during unusually volatile or high-volume periods - precisely the periods where impact costs matter most for execution.</li>
+<li>Both bar construction schemes are sensitive to their sizing parameter (<code>bar_interval</code> and <code>volume_bin_size</code> respectively); these should be varied as a sensitivity check before relying on a single point estimate of <span class="math inline">\(k\)</span>.</li>
+</ul>
+</section>
+
+</main>
+<!-- /main column -->
+<script id="quarto-html-after-body" type="application/javascript">
+  window.document.addEventListener("DOMContentLoaded", function (event) {
+    const icon = "";
+    const anchorJS = new window.AnchorJS();
+    anchorJS.options = {
+      placement: 'right',
+      icon: icon
+    };
+    anchorJS.add('.anchored');
+    const isCodeAnnotation = (el) => {
+      for (const clz of el.classList) {
+        if (clz.startsWith('code-annotation-')) {                     
+          return true;
+        }
+      }
+      return false;
+    }
+    const onCopySuccess = function(e) {
+      // button target
+      const button = e.trigger;
+      // don't keep focus
+      button.blur();
+      // flash "checked"
+      button.classList.add('code-copy-button-checked');
+      var currentTitle = button.getAttribute("title");
+      button.setAttribute("title", "Copied!");
+      let tooltip;
+      if (window.bootstrap) {
+        button.setAttribute("data-bs-toggle", "tooltip");
+        button.setAttribute("data-bs-placement", "left");
+        button.setAttribute("data-bs-title", "Copied!");
+        tooltip = new bootstrap.Tooltip(button, 
+          { trigger: "manual", 
+            customClass: "code-copy-button-tooltip",
+            offset: [0, -8]});
+        tooltip.show();    
+      }
+      setTimeout(function() {
+        if (tooltip) {
+          tooltip.hide();
+          button.removeAttribute("data-bs-title");
+          button.removeAttribute("data-bs-toggle");
+          button.removeAttribute("data-bs-placement");
+        }
+        button.setAttribute("title", currentTitle);
+        button.classList.remove('code-copy-button-checked');
+      }, 1000);
+      // clear code selection
+      e.clearSelection();
+    }
+    const getTextToCopy = function(trigger) {
+      const outerScaffold = trigger.parentElement.cloneNode(true);
+      const codeEl = outerScaffold.querySelector('code');
+      for (const childEl of codeEl.children) {
+        if (isCodeAnnotation(childEl)) {
+          childEl.remove();
+        }
+      }
+      return codeEl.innerText;
+    }
+    const clipboard = new window.ClipboardJS('.code-copy-button:not([data-in-quarto-modal])', {
+      text: getTextToCopy
+    });
+    clipboard.on('success', onCopySuccess);
+    if (window.document.getElementById('quarto-embedded-source-code-modal')) {
+      const clipboardModal = new window.ClipboardJS('.code-copy-button[data-in-quarto-modal]', {
+        text: getTextToCopy,
+        container: window.document.getElementById('quarto-embedded-source-code-modal')
+      });
+      clipboardModal.on('success', onCopySuccess);
+    }
+      var localhostRegex = new RegExp(/^(?:http|https):\/\/localhost\:?[0-9]*\//);
+      var mailtoRegex = new RegExp(/^mailto:/);
+        var filterRegex = new RegExp('/' + window.location.host + '/');
+      var isInternal = (href) => {
+          return filterRegex.test(href) || localhostRegex.test(href) || mailtoRegex.test(href);
+      }
+      // Inspect non-navigation links and adorn them if external
+     var links = window.document.querySelectorAll('a[href]:not(.nav-link):not(.navbar-brand):not(.toc-action):not(.sidebar-link):not(.sidebar-item-toggle):not(.pagination-link):not(.no-external):not([aria-hidden]):not(.dropdown-item):not(.quarto-navigation-tool):not(.about-link)');
+      for (var i=0; i<links.length; i++) {
+        const link = links[i];
+        if (!isInternal(link.href)) {
+          // undo the damage that might have been done by quarto-nav.js in the case of
+          // links that we want to consider external
+          if (link.dataset.originalHref !== undefined) {
+            link.href = link.dataset.originalHref;
+          }
+        }
+      }
+    function tippyHover(el, contentFn, onTriggerFn, onUntriggerFn) {
+      const config = {
+        allowHTML: true,
+        maxWidth: 500,
+        delay: 100,
+        arrow: false,
+        appendTo: function(el) {
+            return el.parentElement;
+        },
+        interactive: true,
+        interactiveBorder: 10,
+        theme: 'quarto',
+        placement: 'bottom-start',
+      };
+      if (contentFn) {
+        config.content = contentFn;
+      }
+      if (onTriggerFn) {
+        config.onTrigger = onTriggerFn;
+      }
+      if (onUntriggerFn) {
+        config.onUntrigger = onUntriggerFn;
+      }
+      window.tippy(el, config); 
+    }
+    const noterefs = window.document.querySelectorAll('a[role="doc-noteref"]');
+    for (var i=0; i<noterefs.length; i++) {
+      const ref = noterefs[i];
+      tippyHover(ref, function() {
+        // use id or data attribute instead here
+        let href = ref.getAttribute('data-footnote-href') || ref.getAttribute('href');
+        try { href = new URL(href).hash; } catch {}
+        const id = href.replace(/^#\/?/, "");
+        const note = window.document.getElementById(id);
+        if (note) {
+          return note.innerHTML;
+        } else {
+          return "";
+        }
+      });
+    }
+    const xrefs = window.document.querySelectorAll('a.quarto-xref');
+    const processXRef = (id, note) => {
+      // Strip column container classes
+      const stripColumnClz = (el) => {
+        el.classList.remove("page-full", "page-columns");
+        if (el.children) {
+          for (const child of el.children) {
+            stripColumnClz(child);
+          }
+        }
+      }
+      stripColumnClz(note)
+      if (id === null || id.startsWith('sec-')) {
+        // Special case sections, only their first couple elements
+        const container = document.createElement("div");
+        if (note.children && note.children.length > 2) {
+          container.appendChild(note.children[0].cloneNode(true));
+          for (let i = 1; i < note.children.length; i++) {
+            const child = note.children[i];
+            if (child.tagName === "P" && child.innerText === "") {
+              continue;
+            } else {
+              container.appendChild(child.cloneNode(true));
+              break;
+            }
+          }
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(container);
+          }
+          return container.innerHTML
+        } else {
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(note);
+          }
+          return note.innerHTML;
+        }
+      } else {
+        // Remove any anchor links if they are present
+        const anchorLink = note.querySelector('a.anchorjs-link');
+        if (anchorLink) {
+          anchorLink.remove();
+        }
+        if (window.Quarto?.typesetMath) {
+          window.Quarto.typesetMath(note);
+        }
+        if (note.classList.contains("callout")) {
+          return note.outerHTML;
+        } else {
+          return note.innerHTML;
+        }
+      }
+    }
+    for (var i=0; i<xrefs.length; i++) {
+      const xref = xrefs[i];
+      tippyHover(xref, undefined, function(instance) {
+        instance.disable();
+        let url = xref.getAttribute('href');
+        let hash = undefined; 
+        if (url.startsWith('#')) {
+          hash = url;
+        } else {
+          try { hash = new URL(url).hash; } catch {}
+        }
+        if (hash) {
+          const id = hash.replace(/^#\/?/, "");
+          const note = window.document.getElementById(id);
+          if (note !== null) {
+            try {
+              const html = processXRef(id, note.cloneNode(true));
+              instance.setContent(html);
+            } finally {
+              instance.enable();
+              instance.show();
+            }
+          } else {
+            // See if we can fetch this
+            fetch(url.split('#')[0])
+            .then(res => res.text())
+            .then(html => {
+              const parser = new DOMParser();
+              const htmlDoc = parser.parseFromString(html, "text/html");
+              const note = htmlDoc.getElementById(id);
+              if (note !== null) {
+                const html = processXRef(id, note);
+                instance.setContent(html);
+              } 
+            }).finally(() => {
+              instance.enable();
+              instance.show();
+            });
+          }
+        } else {
+          // See if we can fetch a full url (with no hash to target)
+          // This is a special case and we should probably do some content thinning / targeting
+          fetch(url)
+          .then(res => res.text())
+          .then(html => {
+            const parser = new DOMParser();
+            const htmlDoc = parser.parseFromString(html, "text/html");
+            const note = htmlDoc.querySelector('main.content');
+            if (note !== null) {
+              // This should only happen for chapter cross references
+              // (since there is no id in the URL)
+              // remove the first header
+              if (note.children.length > 0 && note.children[0].tagName === "HEADER") {
+                note.children[0].remove();
+              }
+              const html = processXRef(null, note);
+              instance.setContent(html);
+            } 
+          }).finally(() => {
+            instance.enable();
+            instance.show();
+          });
+        }
+      }, function(instance) {
+      });
+    }
+        let selectedAnnoteEl;
+        const selectorForAnnotation = ( cell, annotation) => {
+          let cellAttr = 'data-code-cell="' + cell + '"';
+          let lineAttr = 'data-code-annotation="' +  annotation + '"';
+          const selector = 'span[' + cellAttr + '][' + lineAttr + ']';
+          return selector;
+        }
+        const selectCodeLines = (annoteEl) => {
+          const doc = window.document;
+          const targetCell = annoteEl.getAttribute("data-target-cell");
+          const targetAnnotation = annoteEl.getAttribute("data-target-annotation");
+          const annoteSpan = window.document.querySelector(selectorForAnnotation(targetCell, targetAnnotation));
+          const lines = annoteSpan.getAttribute("data-code-lines").split(",");
+          const lineIds = lines.map((line) => {
+            return targetCell + "-" + line;
+          })
+          let top = null;
+          let height = null;
+          let parent = null;
+          if (lineIds.length > 0) {
+              //compute the position of the single el (top and bottom and make a div)
+              const el = window.document.getElementById(lineIds[0]);
+              top = el.offsetTop;
+              height = el.offsetHeight;
+              parent = el.parentElement.parentElement;
+            if (lineIds.length > 1) {
+              const lastEl = window.document.getElementById(lineIds[lineIds.length - 1]);
+              const bottom = lastEl.offsetTop + lastEl.offsetHeight;
+              height = bottom - top;
+            }
+            if (top !== null && height !== null && parent !== null) {
+              // cook up a div (if necessary) and position it 
+              let div = window.document.getElementById("code-annotation-line-highlight");
+              if (div === null) {
+                div = window.document.createElement("div");
+                div.setAttribute("id", "code-annotation-line-highlight");
+                div.style.position = 'absolute';
+                parent.appendChild(div);
+              }
+              div.style.top = top - 2 + "px";
+              div.style.height = height + 4 + "px";
+              div.style.left = 0;
+              let gutterDiv = window.document.getElementById("code-annotation-line-highlight-gutter");
+              if (gutterDiv === null) {
+                gutterDiv = window.document.createElement("div");
+                gutterDiv.setAttribute("id", "code-annotation-line-highlight-gutter");
+                gutterDiv.style.position = 'absolute';
+                const codeCell = window.document.getElementById(targetCell);
+                const gutter = codeCell.querySelector('.code-annotation-gutter');
+                gutter.appendChild(gutterDiv);
+              }
+              gutterDiv.style.top = top - 2 + "px";
+              gutterDiv.style.height = height + 4 + "px";
+            }
+            selectedAnnoteEl = annoteEl;
+          }
+        };
+        const unselectCodeLines = () => {
+          const elementsIds = ["code-annotation-line-highlight", "code-annotation-line-highlight-gutter"];
+          elementsIds.forEach((elId) => {
+            const div = window.document.getElementById(elId);
+            if (div) {
+              div.remove();
+            }
+          });
+          selectedAnnoteEl = undefined;
+        };
+          // Handle positioning of the toggle
+      window.addEventListener(
+        "resize",
+        throttle(() => {
+          elRect = undefined;
+          if (selectedAnnoteEl) {
+            selectCodeLines(selectedAnnoteEl);
+          }
+        }, 10)
+      );
+      function throttle(fn, ms) {
+      let throttle = false;
+      let timer;
+        return (...args) => {
+          if(!throttle) { // first call gets through
+              fn.apply(this, args);
+              throttle = true;
+          } else { // all the others get throttled
+              if(timer) clearTimeout(timer); // cancel #2
+              timer = setTimeout(() => {
+                fn.apply(this, args);
+                timer = throttle = false;
+              }, ms);
+          }
+        };
+      }
+        // Attach click handler to the DT
+        const annoteDls = window.document.querySelectorAll('dt[data-target-cell]');
+        for (const annoteDlNode of annoteDls) {
+          annoteDlNode.addEventListener('click', (event) => {
+            const clickedEl = event.target;
+            if (clickedEl !== selectedAnnoteEl) {
+              unselectCodeLines();
+              const activeEl = window.document.querySelector('dt[data-target-cell].code-annotation-active');
+              if (activeEl) {
+                activeEl.classList.remove('code-annotation-active');
+              }
+              selectCodeLines(clickedEl);
+              clickedEl.classList.add('code-annotation-active');
+            } else {
+              // Unselect the line
+              unselectCodeLines();
+              clickedEl.classList.remove('code-annotation-active');
+            }
+          });
+        }
+    const findCites = (el) => {
+      const parentEl = el.parentElement;
+      if (parentEl) {
+        const cites = parentEl.dataset.cites;
+        if (cites) {
+          return {
+            el,
+            cites: cites.split(' ')
+          };
+        } else {
+          return findCites(el.parentElement)
+        }
+      } else {
+        return undefined;
+      }
+    };
+    var bibliorefs = window.document.querySelectorAll('a[role="doc-biblioref"]');
+    for (var i=0; i<bibliorefs.length; i++) {
+      const ref = bibliorefs[i];
+      const citeInfo = findCites(ref);
+      if (citeInfo) {
+        tippyHover(citeInfo.el, function() {
+          var popup = window.document.createElement('div');
+          citeInfo.cites.forEach(function(cite) {
+            var citeDiv = window.document.createElement('div');
+            citeDiv.classList.add('hanging-indent');
+            citeDiv.classList.add('csl-entry');
+            var biblioDiv = window.document.getElementById('ref-' + cite);
+            if (biblioDiv) {
+              citeDiv.innerHTML = biblioDiv.innerHTML;
+            }
+            popup.appendChild(citeDiv);
+          });
+          return popup.innerHTML;
+        });
+      }
+    }
+  });
+  </script>
+</div> <!-- /content -->
+
+
+
+
+</body></html>
