@@ -1,0 +1,926 @@
+---
+title: "Estimation of the Execution Cost Function"
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    code-fold: true
+    fig-width: 8
+    fig-height: 4.5
+author: "Raj Kundi"
+date: "08/22/2026"
+---
+
+```{r}
+#| label: setup
+#| message: false
+#| warning: false
+#| include: false
+
+library(ggplot2)
+library(tidyverse)
+library(data.table)
+library(lubridate)
+library(zoo)
+library(scales)
+
+setDTthreads(0)
+
+# Format a number as "$m \times 10^{e}$" for correctly rendered scientific notation inline.
+format_sci <- function(x, digits = 3) {
+  exponent <- floor(log10(abs(x)))
+  mantissa <- signif(x / 10^exponent, digits)
+  sprintf("$%s \\times 10^{%d}$", format(mantissa), exponent)
+}
+
+# ---- Plot styling -----------------------------------------------------------
+# Categorical hues are slots 1-3 of a colourblind-safe reference palette, used in
+# fixed order: blue = measured data, orange = fitted model, grey = context.
+col_data  <- "#2a78d6"
+col_model <- "#eb6834"
+col_muted <- "#b4b3ac"
+
+theme_set(theme_minimal(base_size = 11))
+theme_update(
+  panel.grid.minor = element_blank(),
+  panel.grid.major = element_line(linewidth = 0.3, colour = "grey88"),
+  plot.title       = element_text(face = "bold", size = 12),
+  plot.subtitle    = element_text(colour = "grey35", size = 10),
+  plot.caption     = element_text(colour = "grey45", size = 8, hjust = 0),
+  strip.text       = element_text(colour = "grey25", size = 9),
+  legend.position  = "bottom",
+  legend.title     = element_blank()
+)
+```
+
+```{r}
+#| label: parameters
+#| code-summary: "Estimation parameters"
+
+SYMBOL      <- "SOLUSD_PERP"
+MONTH       <- "2024-08"   # estimation sample
+WARMUP      <- "2024-07"   # read for daily volume only, to warm up the trailing ADV
+
+BAR_MINUTES <- 5     # bar length over which the participation rate is defined
+ADV_WINDOW  <- 10    # trailing days in the average-daily-volume estimate of V_t
+VOL_WINDOW  <- 15    # bars in the rolling volatility estimate used for filtering
+TRIM_Q      <- 0.95  # drop the top 5% of rolling volatility and of bar volume
+N_BINS      <- 20    # participation-rate quantile bins for the conditional mean
+```
+
+# Introduction
+
+In the Almgren--Chriss framework the market volume process is $V_t$, and a trader
+executing at rate $v_t$ pays, per base asset transacted at time $t$,
+
+$$
+S_t + g\!\left(\frac{v_t}{V_t}\right),
+$$
+
+where $S_t$ is the mid-price. If the trader buys the trading price is above the
+mid-price; if she sells it is below. Writing $\rho = v_t / V_t$ for the
+**participation rate**, the price paid per token is
+
+$$
+S_t + g(\rho) = S_t + \eta\,\operatorname{sign}(\rho)\,|\rho|^{\phi} + \psi\,\operatorname{sign}(\rho).
+$$
+
+Rather than working with $g$ directly it is convenient to use the **execution
+cost function** $L(\rho) = \rho\, g(\rho)$, which measures cost per unit time
+rather than per unit traded. If $X_t$ is the trader's cash account process, then
+
+$$
+\begin{array}{rcl}
+d X_t & = & - v_t \left( S_t + g\!\left( \frac{v_t}{V_t} \right) \right) dt \\[4pt]
+      & = & -v_t S_t \, dt - V_t\, L\!\left( \frac{v_t}{V_t} \right) dt .
+\end{array}
+$$
+
+$L$ is taken to be a strictly convex power function,
+
+$$
+L(\rho) = \eta\,|\rho|^{1 + \phi} + \psi\,|\rho|, \qquad \eta, \psi > 0,\ \phi > 0,
+$$
+
+whose two terms are economically distinct.
+
+**The proportional term $\psi|\rho|$** is linear, and is the per-token add-on: a
+constant mark-up or mark-down paid on every asset traded, no matter how fast or
+slow the trader goes. It is a *fixed transaction cost* — the effective spread,
+the venue fee, and any taxes or similar charges — not a liquidity cost.
+
+**The super-linear term $\eta|\rho|^{1+\phi}$** models **temporary market
+impact**. When a trader trades faster she consumes more liquidity and the price
+moves against her own trading pressure. This is the term that makes the optimal
+execution problem non-trivial, and estimating its two parameters is the main work
+of this notebook.
+
+This notebook estimates $\psi$, $\eta$ and $\phi$ from one month of Binance
+`r SYMBOL` perpetual futures data. It is the companion to
+`../market_impact/estimation_of_market_impact.qmd`, which estimates the
+*permanent* impact coefficient $k$ from the same data; together the two
+parameterise the trading-curve problem.
+
+## What each parameter is measured against
+
+The two cost terms are separated by choosing the right price benchmark, and
+getting this right is what makes the estimation work at all:
+
+| Parameter | Measured from | Measured to | Interpretation |
+|---|---|---|---|
+| $\psi$ | mid-price | best bid/ask | half the quoted spread: the cost of crossing, paid even by an infinitesimally small order |
+| $\eta,\ \phi$ | best bid/ask | realised price | **slippage**: the cost of walking the book beyond the touch |
+
+Measuring slippage from the *touch* rather than from the mid is what stops the
+two terms absorbing one another. An order that fills entirely at the best quote
+has zero slippage by construction and contributes only $\psi$.
+
+# Data
+
+## Sources
+
+Two tick-level Binance feeds for `r SYMBOL`, `r MONTH`:
+
+- **`trades`** — individual executions. Each row is a *fill*, carrying `price`,
+  `base_qty` (size in SOL), millisecond `time`, and `is_buyer_maker`, which signs
+  the taker side: `is_buyer_maker == TRUE` means the *taker was selling* into the
+  bid; `FALSE` means the taker was buying from the ask.
+- **`bookTicker`** — best bid/ask snapshots, from which the mid-price process and
+  the spread are reconstructed. Only the three columns needed are read, since the
+  raw file is several gigabytes.
+
+```{r}
+#| label: load-data
+#| message: false
+#| code-summary: "Load trades and bookTicker"
+
+trades <- fread(sprintf("data/%s-trades-%s.csv", SYMBOL, MONTH))
+bookTicker <- fread(
+  sprintf("data/%s-bookTicker-%s.csv", SYMBOL, MONTH),
+  select = c("best_bid_price", "best_ask_price", "transaction_time")
+)
+
+trades[, ts   := as.POSIXct(time / 1000, origin = "1970-01-01", tz = "UTC")]
+trades[, date := as.Date(ts)]
+# is_buyer_maker == TRUE  =>  the maker was the buyer  =>  the TAKER sold.
+trades[, taker_buy := !is_buyer_maker]
+
+bookTicker[, mid_price     := (best_bid_price + best_ask_price) / 2]
+bookTicker[, quoted_spread := best_ask_price - best_bid_price]
+# Half the quoted spread: what a marketable order concedes just by crossing.
+bookTicker[, half_spread   := quoted_spread / 2]
+bookTicker[, ts := as.POSIXct(transaction_time / 1000, origin = "1970-01-01", tz = "UTC")]
+
+setorder(trades, time, id)
+setorder(bookTicker, transaction_time)
+```
+
+The sample contains `r comma(nrow(trades))` fills and
+`r comma(nrow(bookTicker))` quote updates spanning
+`r format(min(trades$ts), "%Y-%m-%d")` to `r format(max(trades$ts), "%Y-%m-%d")`.
+
+## Attaching the prevailing quote
+
+Each fill is matched to the last quote strictly *before* it. The strict
+inequality matters: a quote stamped at the same millisecond as the fill may
+already reflect that fill's own consumption of the book, which would mechanically
+shrink the measured slippage toward zero.
+
+```{r}
+#| label: quote-join
+#| code-summary: "Non-equi join of fills to the prevailing quote"
+
+setkey(bookTicker, transaction_time)
+
+trades[, pre_bid := bookTicker[trades, on = .(transaction_time < time),
+                               mult = "last", .(best_bid_price)]$best_bid_price]
+trades[, pre_ask := bookTicker[trades, on = .(transaction_time < time),
+                               mult = "last", .(best_ask_price)]$best_ask_price]
+trades[, pre_mid := (pre_bid + pre_ask) / 2]
+```
+
+```{r}
+#| label: fig-spread
+#| fig-cap: "Half the quoted spread through the month. The instrument sits at the minimum tick almost all of the time; the visible excursions are the news and liquidation episodes that the filtering step below is designed to remove."
+#| code-summary: "Plot the spread process"
+
+spread_plot <- bookTicker[seq(1, .N, by = 2000)]
+spread_plot[, half_spread_ma := rollmean(half_spread, k = 200, fill = NA, align = "right")]
+
+ggplot(spread_plot, aes(x = ts)) +
+  geom_line(aes(y = half_spread, colour = "Raw"), alpha = 0.5, linewidth = 0.25) +
+  geom_line(aes(y = half_spread_ma, colour = "Rolling mean"), linewidth = 0.6, na.rm = TRUE) +
+  scale_colour_manual(values = c("Raw" = col_muted, "Rolling mean" = col_data)) +
+  # Log scale: the series sits at the minimum tick for most of the month, so a
+  # linear axis is entirely taken up by a handful of spikes.
+  scale_y_log10(labels = label_number(drop0trailing = TRUE)) +
+  annotation_logticks(sides = "l", colour = "grey70", linewidth = 0.25) +
+  labs(
+    title    = "Half the quoted spread",
+    subtitle = sprintf("%s, %s — every 2,000th quote update, rolling mean over 200 sampled points",
+                       SYMBOL, MONTH),
+    x = NULL, y = "Half spread (USD per SOL)"
+  )
+```
+
+```{r}
+#| label: free-bookticker
+#| include: false
+
+# The quote series is no longer needed once the fills carry their arrival quotes.
+rm(bookTicker, spread_plot)
+invisible(gc())
+
+# Share of timestamps carrying both taker directions: justifies grouping orders
+# by timestamp AND side rather than by timestamp alone.
+pct_mixed <- trades[, .(n_sides = uniqueN(taker_buy)), by = time][, 100 * mean(n_sides > 1)]
+```
+
+# Reconstructing marketable orders
+
+A single marketable order that sweeps several price levels is reported by the
+exchange as **several fill rows sharing one millisecond timestamp**. Treating
+those rows as separate trades destroys precisely the signal we are after: the
+first fragment executes at the touch with zero slippage, and only the later
+fragments show the concession. Fills are therefore aggregated into orders, and
+the order's realised price is the size-weighted average of its fills,
+
+$$
+\bar{P} = \frac{\sum_i q_i p_i}{\sum_i q_i}, \qquad
+\text{slippage} =
+\begin{cases}
+\bar{P} - \text{ask}^{-} & \text{taker buys,} \\[2pt]
+\text{bid}^{-} - \bar{P} & \text{taker sells,}
+\end{cases}
+$$
+
+where $\text{ask}^{-}$ and $\text{bid}^{-}$ are the quotes prevailing before the
+order's first fill. Grouping is by timestamp *and* taker side rather than by
+timestamp alone: only `r sprintf("%.2f%%", pct_mixed)` of timestamps contain both
+directions, but merging a buy with a sell would net opposing flow into a
+meaningless average price.
+
+```{r}
+#| label: build-orders
+#| code-summary: "Aggregate fills into marketable orders"
+
+trades[, order_id := rleid(time, taker_buy)]
+
+orders <- trades[, .(
+  ts        = first(ts),
+  date      = first(date),
+  taker_buy = first(taker_buy),
+  base_qty  = sum(base_qty),
+  notional  = sum(base_qty * price),
+  n_fills   = .N,
+  pre_bid   = first(pre_bid),
+  pre_ask   = first(pre_ask),
+  pre_mid   = first(pre_mid)
+), by = order_id]
+
+orders[, exec_price  := notional / base_qty]
+orders[, slippage    := fifelse(taker_buy, exec_price - pre_ask, pre_bid - exec_price)]
+orders[, half_spread := (pre_ask - pre_bid) / 2]
+setorder(orders, ts)
+```
+
+```{r}
+#| label: order-stats
+#| include: false
+
+n_fills_tot <- nrow(trades)
+n_orders    <- nrow(orders)
+pct_zero    <- 100 * mean(orders$slippage == 0)
+pct_neg     <- 100 * mean(orders$slippage <  0)
+pct_pos     <- 100 * mean(orders$slippage >  0)
+
+# Counterfactual used in the "Bar construction" section: if a bar's cost were
+# measured as its VWAP against the bar's OPENING mid, the accumulated price
+# drift over the bar would swamp the impact signal and turn the cost negative
+# this often.
+pct_drift_neg <- orders[, .(vwap = sum(notional) / sum(base_qty),
+                            mid0 = first(pre_mid), tb = first(taker_buy)),
+                        by = .(bin = floor_date(ts, sprintf("%d minutes", BAR_MINUTES)),
+                               taker_buy)
+][, 100 * mean(fifelse(tb, vwap - mid0, mid0 - vwap) < 0)]
+```
+
+`r comma(n_fills_tot)` fills collapse to `r comma(n_orders)` orders. The
+resulting slippage distribution is dominated by a point mass at exactly zero.
+
+```{r}
+#| label: fig-slippage-dist
+#| fig-cap: "Order slippage relative to the touch. The bar at zero is not bad data — it is every order that filled entirely at the best quote, and it holds most of the sample."
+#| fig-height: 3.6
+#| code-summary: "Plot the order slippage distribution"
+
+dist <- orders[, .(bucket = fcase(
+  slippage <  0, "Negative",
+  slippage == 0, "Exactly zero",
+  default        = "Positive"
+))][, .N, by = bucket]
+dist[, share  := N / sum(N)]
+dist[, bucket := factor(bucket, levels = c("Negative", "Exactly zero", "Positive"))]
+
+ggplot(dist, aes(x = bucket, y = share)) +
+  geom_col(fill = col_data, width = 0.55) +
+  geom_text(aes(label = percent(share, accuracy = 0.1)),
+            vjust = -0.6, size = 3.4, colour = "grey25") +
+  scale_y_continuous(labels = percent_format(), expand = expansion(mult = c(0, 0.14))) +
+  labs(
+    title    = "Most marketable orders never leave the touch",
+    subtitle = sprintf("%s orders, %s", comma(n_orders), MONTH),
+    x = NULL, y = "Share of orders"
+  )
+```
+
+`r sprintf("%.1f%%", pct_zero)` of orders execute entirely at the best quote and
+so have exactly zero slippage, `r sprintf("%.1f%%", pct_pos)` pay a positive
+concession, and `r sprintf("%.1f%%", pct_neg)` are negative. The negative values
+are a measurement artifact rather than a free lunch: they arise when the book
+improves between the quote snapshot and the fill, or when hidden liquidity rests
+inside the spread.
+
+::: {.callout-note}
+## Why the zeros are kept here but dropped later
+
+Zero-slippage orders carry no information about the *shape* of $g$, and in a
+log-log regression they cannot even be represented. But they are genuine
+zero-cost executions, and the quantity being modelled is the *average* cost of
+executing a given quantity. Discarding them before averaging would overstate the
+cost of every bar that contains one.
+
+They are therefore retained inside the volume-weighted bar average and dropped
+only at the bar level, where they are rare. The alternative — dropping them first
+— is estimated and reported in the robustness table.
+:::
+
+# The proportional cost $\psi$
+
+$\psi$ is the per-token cost that does not depend on trading speed. It has two
+components:
+
+1. **The effective spread** — the distance from the mid-price to the touch, which
+   is half the quoted spread. This is directly measurable and is the part
+   estimated here.
+2. **The venue fee.** Fees are *not* embedded in the `price` field of the trades
+   feed, so there is nothing in this data to estimate. The fee is a known constant
+   for any given account tier and simply adds to $\psi$.
+
+The spread is size-weighted, since what matters for execution cost is the spread
+prevailing when volume actually trades, not the spread averaged over idle time.
+
+```{r}
+#| label: psi
+#| code-summary: "Estimate the proportional cost"
+
+psi_vw     <- orders[, sum(base_qty * half_spread) / sum(base_qty)]
+psi_median <- median(orders$half_spread)
+mean_price <- orders[, sum(notional) / sum(base_qty)]
+
+psi_vw_bps     <- 1e4 * psi_vw / mean_price
+psi_median_bps <- 1e4 * psi_median / mean_price
+```
+
+| Estimate | USD per SOL | bps of mid |
+|---|---|---|
+| Volume-weighted mean half-spread | `r sprintf("%.6f", psi_vw)` | `r sprintf("%.3f", psi_vw_bps)` |
+| Median half-spread | `r sprintf("%.6f", psi_median)` | `r sprintf("%.3f", psi_median_bps)` |
+
+The volume-weighted figure is an order of magnitude above the median because size
+arrives when the spread is wide. Since $\psi$ is meant to price the cost actually
+paid, the volume-weighted estimate
+
+$$
+\hat\psi = `r sprintf("%.6f", psi_vw)` \ \text{USD per SOL} \approx `r sprintf("%.2f", psi_vw_bps)` \ \text{bps}
+$$
+
+is the one carried forward. It excludes fees, which on a typical taker tier are
+one to two orders of magnitude larger than the spread on this instrument.
+
+# The participation rate
+
+## Why the unit of analysis must be a bar
+
+$\rho = v_t / V_t$ is a ratio of two *rates*: the trader's execution rate and the
+market's volume rate, over the same horizon. A single order's size divided by a
+whole day's volume is not that ratio, and it produces $\rho \approx 10^{-6}$ —
+five orders of magnitude below the participation rates any real execution
+schedule operates at. The section [Why not estimate at the order level?] shows
+empirically that the exponent is simply not identified at that scale.
+
+The estimation is therefore run on **`r BAR_MINUTES`-minute bars, split by taker
+side**. Within a bar, one side's takers are treated as a single trader executing a
+schedule: $v$ is that side's total volume and $V$ is the market's volume rate over
+the same window. This mirrors the bar construction used for permanent impact in
+the companion notebook.
+
+## The market volume rate $V_t$
+
+$V_t$ is a trailing `r ADV_WINDOW`-day average daily volume, lagged one day so
+that no part of the estimate uses information from the day it is applied to. The
+preceding month is read for its daily volumes only, so the trailing window is
+fully populated from the first day of the sample.
+
+```{r}
+#| label: adv
+#| message: false
+#| code-summary: "Trailing average daily volume"
+
+warmup <- fread(sprintf("data/%s-trades-%s.csv", SYMBOL, WARMUP),
+                select = c("base_qty", "time"))
+warmup[, date := as.Date(as.POSIXct(as.numeric(time) / 1000,
+                                    origin = "1970-01-01", tz = "UTC"))]
+
+daily_volume <- rbind(
+  warmup[, .(volume = sum(base_qty)), by = date],
+  trades[,  .(volume = sum(base_qty)), by = date]
+)[, .(volume = sum(volume)), by = date][order(date)]
+
+# Trailing mean, then lagged one day: strictly causal.
+daily_volume[, adv := shift(rollapply(volume, ADV_WINDOW, mean,
+                                      fill = NA, align = "right"), 1)]
+
+rm(warmup)
+invisible(gc())
+```
+
+```{r}
+#| label: fig-adv
+#| fig-cap: "Daily traded volume against the lagged trailing average that defines the market volume rate. The 5 August spike is the yen-carry unwind; the trailing average deliberately absorbs it slowly."
+#| fig-height: 3.6
+#| code-summary: "Plot daily volume against the trailing ADV"
+
+ggplot(daily_volume[date >= as.Date(paste0(MONTH, "-01"))], aes(x = date)) +
+  geom_col(aes(y = volume, fill = "Daily volume"), width = 0.7) +
+  geom_line(aes(y = adv, colour = "Trailing ADV (lagged)"), linewidth = 0.8, na.rm = TRUE) +
+  scale_fill_manual(values   = c("Daily volume" = col_muted)) +
+  scale_colour_manual(values = c("Trailing ADV (lagged)" = col_data)) +
+  scale_y_continuous(labels = label_number(scale = 1e-6, suffix = "M")) +
+  labs(
+    title    = "Daily volume and the market volume rate",
+    subtitle = sprintf("%s, %s — %d-day trailing mean, lagged one day",
+                       SYMBOL, MONTH, ADV_WINDOW),
+    x = NULL, y = "Volume (SOL)"
+  )
+```
+
+## Bar construction
+
+For each bar and taker side,
+
+$$
+\rho = \frac{\sum_j q_j}{\mathrm{ADV} \times \Delta / 1440},
+\qquad
+\text{slippage}_{\text{bar}} = \frac{\sum_j q_j\, s_j}{\sum_j q_j},
+$$
+
+with $q_j$ and $s_j$ the size and slippage of order $j$ and $\Delta$ the bar
+length in minutes. The denominator of $\rho$ scales the daily volume rate down to
+the bar, so $\rho = 1$ means that side alone traded at the market's own average
+rate.
+
+Each order's slippage is measured against *its own* arrival quote, so the bar
+average is free of the price drift that accumulates over the bar. That drift is
+permanent impact, and belongs to the companion notebook rather than here. The
+distinction is not academic: measuring each bar's VWAP against the bar's
+*opening* mid instead confounds the two, and the resulting cost comes out
+**negative in `r sprintf("%.0f%%", pct_drift_neg)` of bars** — the drift over the
+bar simply swamps the impact signal.
+
+```{r}
+#| label: make-bars
+#| code-summary: "Bar construction and filtering functions"
+
+make_bars <- function(ord, minutes, drop_zero_orders = FALSE) {
+  d <- if (drop_zero_orders) ord[slippage != 0] else ord
+  d <- copy(d)[, bin := floor_date(ts, sprintf("%d minutes", minutes))]
+
+  # Arrival mid of each bar, and the rolling volatility used for filtering.
+  arrival <- d[, .(bar_mid = first(pre_mid)), by = bin][order(bin)]
+  arrival[, sd_mid := rollapply(bar_mid, VOL_WINDOW, sd, fill = NA, align = "right")]
+
+  b <- d[, .(
+    date     = first(date),
+    qty      = sum(base_qty),
+    n_orders = .N,
+    slip_vw  = sum(base_qty * slippage) / sum(base_qty)
+  ), by = .(bin, taker_buy)]
+
+  b <- merge(merge(b, arrival, by = "bin"), daily_volume[, .(date, adv)], by = "date")
+  b[, rho := qty / (adv * (minutes / (24 * 60)))]
+  b[]
+}
+
+apply_filters <- function(b, q = TRIM_Q) {
+  cut_sd  <- quantile(b$sd_mid, q, na.rm = TRUE)
+  cut_qty <- quantile(b$qty,    q, na.rm = TRUE)
+  b[!is.na(sd_mid) & sd_mid <= cut_sd & qty <= cut_qty & rho > 0 & slip_vw > 0]
+}
+
+bars_all <- make_bars(orders, BAR_MINUTES)
+bars     <- apply_filters(bars_all)
+```
+
+# Data cleaning
+
+Three filters are applied, following the same logic as the permanent-impact
+notebook.
+
+**Top `r sprintf("%.0f%%", 100 * (1 - TRIM_Q))` of rolling volatility.** When the
+mid-price is moving violently the book at the touch is thin and reprices between
+the quote snapshot and the fill. Measured slippage in those bars is dominated by
+that repricing rather than by the trader's own consumption of liquidity, so with
+respect to $g$ it is noise. Volatility is the rolling standard deviation of the
+bar arrival mid over `r VOL_WINDOW` bars.
+
+**Top `r sprintf("%.0f%%", 100 * (1 - TRIM_Q))` of bar volume.** The heaviest bars
+are liquidation cascades and news reactions. They are genuine observations, but
+they sit so far out in $\rho$ that they would dominate the fit, and their cost
+dynamics are not the ones a normal execution schedule faces.
+
+**Non-positive bar slippage.** A bar whose volume-weighted slippage is zero or
+negative cannot enter a log-log regression. At bar level this is rare, because
+averaging washes out the individual measurement artifacts, so the truncation bias
+is small. That is emphatically not true at order level, where the same rule would
+discard `r sprintf("%.0f%%", pct_zero + pct_neg)` of the sample.
+
+```{r}
+#| label: fig-filters
+#| fig-cap: "The two trimming thresholds. Bars to the right of each dashed line are dropped."
+#| fig-height: 3.6
+#| code-summary: "Plot the filter thresholds"
+
+cut_sd  <- quantile(bars_all$sd_mid, TRIM_Q, na.rm = TRUE)
+cut_qty <- quantile(bars_all$qty,    TRIM_Q, na.rm = TRUE)
+
+metric_levels <- c("Rolling volatility of the mid (USD)", "Bar volume (SOL)")
+
+filt_long <- rbind(
+  bars_all[!is.na(sd_mid) & sd_mid > 0, .(value = sd_mid, metric = metric_levels[1])],
+  bars_all[qty > 0,                     .(value = qty,    metric = metric_levels[2])]
+)
+filt_long[, metric := factor(metric, levels = metric_levels)]
+
+cuts <- data.table(metric = factor(metric_levels, levels = metric_levels),
+                   cut    = c(cut_sd, cut_qty))
+
+ggplot(filt_long, aes(x = value)) +
+  geom_histogram(bins = 70, fill = col_data, alpha = 0.85) +
+  geom_vline(data = cuts, aes(xintercept = cut),
+             colour = col_model, linetype = "dashed", linewidth = 0.7) +
+  facet_wrap(~ metric, scales = "free") +
+  scale_x_log10(labels = label_number(drop0trailing = TRUE, big.mark = ",")) +
+  scale_y_continuous(labels = comma) +
+  labs(
+    title    = sprintf("Trimming the top %.0f%% of volatility and of volume",
+                       100 * (1 - TRIM_Q)),
+    subtitle = sprintf("%d-minute bars, log x-axis. Dashed line = %.0fth percentile",
+                       BAR_MINUTES, 100 * TRIM_Q),
+    x = NULL, y = "Bars"
+  )
+```
+
+```{r}
+#| label: cleaning-table
+#| code-summary: "Cleaning waterfall"
+
+n_drop_sd   <- bars_all[is.na(sd_mid) | sd_mid > cut_sd, .N]
+n_drop_qty  <- bars_all[!is.na(sd_mid) & sd_mid <= cut_sd & qty > cut_qty, .N]
+n_drop_slip <- bars_all[!is.na(sd_mid) & sd_mid <= cut_sd & qty <= cut_qty & slip_vw <= 0, .N]
+
+knitr::kable(
+  data.table(
+    Step = c("Bars constructed",
+             sprintf("Drop top %.0f%% rolling volatility", 100 * (1 - TRIM_Q)),
+             sprintf("Drop top %.0f%% bar volume",         100 * (1 - TRIM_Q)),
+             "Drop non-positive slippage",
+             "Retained"),
+    Bars = c(nrow(bars_all), -n_drop_sd, -n_drop_qty, -n_drop_slip, nrow(bars))
+  ),
+  format.args = list(big.mark = ","),
+  caption = "Effect of each cleaning step on the bar sample."
+)
+```
+
+`r sprintf("%.1f%%", 100 * nrow(bars) / nrow(bars_all))` of bars survive. The
+retained sample spans participation rates from `r sprintf("%.3f", min(bars$rho))`
+to `r sprintf("%.2f", max(bars$rho))`, with a median of
+`r sprintf("%.2f", median(bars$rho))` — a range that covers the schedules an
+execution algorithm would actually run.
+
+# Estimating $\eta$ and $\phi$
+
+Taking logs of $g(\rho) = \eta \rho^{\phi}$ linearises the power law, so the slope
+of $\log(\text{slippage})$ on $\log \rho$ estimates $\phi$ and the intercept
+estimates $\log \eta$.
+
+```{r}
+#| label: fit
+#| code-summary: "Fit the power law"
+
+fit <- lm(log(slip_vw) ~ log(rho), data = bars)
+summary(fit)
+
+eta <- exp(coef(fit)[[1]])
+phi <- coef(fit)[[2]]
+```
+
+```{r}
+#| label: fig-scatter
+#| fig-cap: "Bar-level slippage against participation rate on log-log axes. A pure power law is a straight line in these coordinates."
+#| code-summary: "Plot slippage against participation rate"
+
+# A few dozen near-zero bars stretch the axis over five decades and squash the
+# bulk into a sliver, so the view is zoomed to the central 99.8%. This is a zoom
+# only -- coord_cartesian clips the view, it does not drop rows, and the fit
+# above was estimated on every retained bar.
+y_zoom  <- quantile(bars$slip_vw, c(0.001, 0.999))
+n_off   <- bars[slip_vw < y_zoom[1] | slip_vw > y_zoom[2], .N]
+
+ggplot(bars, aes(x = rho, y = slip_vw)) +
+  geom_point(alpha = 0.12, size = 0.7, colour = col_data) +
+  geom_abline(intercept = log10(eta), slope = phi,
+              colour = col_model, linewidth = 0.9) +
+  scale_x_log10(labels = label_number(accuracy = 0.01)) +
+  scale_y_log10(labels = label_number(drop0trailing = TRUE)) +
+  annotation_logticks(sides = "bl", colour = "grey70", linewidth = 0.25) +
+  coord_cartesian(ylim = y_zoom) +
+  labs(
+    title    = "Slippage against participation rate",
+    subtitle = sprintf("%d-minute bars by taker side, n = %s; fitted exponent = %.3f",
+                       BAR_MINUTES, comma(nrow(bars)), phi),
+    x = expression(rho == v[t]/V[t]),
+    y = "Volume-weighted slippage (USD per SOL)",
+    caption = sprintf(paste("Orange line: the fitted power law. View zoomed to the central 99.8%% of bars;",
+                            "%d bars fall outside it and are included in the fit."), n_off)
+  )
+```
+
+The scatter is wide, as it must be — a single bar's realised cost is one draw from
+a heavy-tailed distribution. The systematic relationship is far clearer in the
+**conditional mean**, obtained by grouping bars into `r N_BINS` equally populated
+participation-rate bins and averaging within each. Averaging is the right
+operation: it is the conditional mean of $g$ that the model describes, and it
+cancels the symmetric measurement noise that the log transform otherwise
+distorts.
+
+```{r}
+#| label: binned
+#| code-summary: "Binned conditional mean"
+
+bars[, rho_bin := cut(rho,
+                      breaks = unique(quantile(rho, seq(0, 1, length.out = N_BINS + 1))),
+                      include.lowest = TRUE)]
+
+binned <- bars[!is.na(rho_bin), .(
+  mean_slippage   = mean(slip_vw),
+  median_slippage = median(slip_vw),
+  rho_med         = median(rho),
+  n               = .N
+), by = rho_bin][order(rho_med)]
+
+fit_binned <- lm(log(mean_slippage) ~ log(rho_med), data = binned, weights = binned$n)
+eta_binned <- exp(coef(fit_binned)[[1]])
+phi_binned <- coef(fit_binned)[[2]]
+```
+
+```{r}
+#| label: fig-binned
+#| fig-cap: "Conditional mean slippage by participation-rate bin, against the fitted power law. Each bin holds an equal number of bars."
+#| code-summary: "Plot the binned conditional mean"
+
+grid <- data.table(rho = 10^seq(log10(min(binned$rho_med)),
+                                log10(max(binned$rho_med)), length.out = 200))
+grid[, pred := eta_binned * rho^phi_binned]
+
+ggplot() +
+  geom_line(data = grid, aes(x = rho, y = pred, colour = "Fitted power law"),
+            linewidth = 0.9, linetype = "dashed") +
+  geom_point(data = binned, aes(x = rho_med, y = mean_slippage, colour = "Conditional mean"),
+             size = 2.2) +
+  scale_colour_manual(values = c("Conditional mean" = col_data,
+                                 "Fitted power law" = col_model)) +
+  scale_x_log10(labels = label_number(accuracy = 0.01)) +
+  scale_y_log10(labels = label_number(accuracy = 0.0001)) +
+  annotation_logticks(sides = "bl", colour = "grey70", linewidth = 0.25) +
+  labs(
+    title    = "The conditional mean is a clean power law",
+    subtitle = sprintf("%d bins of %s bars each; exponent = %.3f, R-squared = %.3f",
+                       nrow(binned), comma(round(mean(binned$n))),
+                       phi_binned, summary(fit_binned)$r.squared),
+    x = expression(rho~"(bin median)"),
+    y = "Mean slippage (USD per SOL)"
+  )
+```
+
+The binned fit reaches $R^2 =$ `r sprintf("%.3f", summary(fit_binned)$r.squared)`,
+against `r sprintf("%.3f", summary(fit)$r.squared)` for the unbinned regression.
+The gap is not a contradiction: the power law describes the conditional mean well,
+while individual bars scatter widely around it. Both estimates of $\phi$ are
+reported.
+
+# Robustness
+
+```{r}
+#| label: robustness
+#| code-summary: "Robustness checks"
+
+summarise_fit <- function(f, label) {
+  m <- lm(log(slip_vw) ~ log(rho), f)
+  data.table(Specification = label, n = nrow(f),
+             eta = exp(coef(m)[[1]]), phi = coef(m)[[2]],
+             R2 = summary(m)$r.squared)
+}
+
+rob <- rbindlist(list(
+  # Sampling horizon
+  rbindlist(lapply(c(1, 5, 15, 30, 60), function(mm)
+    summarise_fit(apply_filters(make_bars(orders, mm)), sprintf("Bar length: %d min", mm)))),
+  # Strength of the trimming
+  rbindlist(lapply(c(1, 0.99, 0.95, 0.90), function(q)
+    summarise_fit(apply_filters(bars_all, q), sprintf("Trim: keep %.0f%%", 100 * q)))),
+  # Zero-slippage orders removed before aggregating
+  summarise_fit(apply_filters(make_bars(orders, BAR_MINUTES, drop_zero_orders = TRUE)),
+                "Zero-slippage orders dropped first"),
+  # Subsamples
+  rbindlist(lapply(sort(unique(isoweek(bars$bin))), function(w)
+    summarise_fit(bars[isoweek(bin) == w], sprintf("ISO week %d", w)))),
+  summarise_fit(bars[taker_buy == TRUE],  "Taker buys only"),
+  summarise_fit(bars[taker_buy == FALSE], "Taker sells only")
+))
+
+knitr::kable(rob, digits = c(0, 0, 5, 3, 3),
+             format.args = list(big.mark = ","),
+             col.names = c("Specification", "n", "$\\hat\\eta$", "$\\hat\\phi$", "$R^2$"),
+             caption = "Sensitivity of the estimates to sampling and cleaning choices.")
+```
+
+```{r}
+#| label: fig-robust
+#| fig-cap: "The exponent across bar lengths under both estimators. The conditional-mean estimator is stable throughout and drifts toward the square-root value as the horizon lengthens."
+#| fig-height: 3.6
+#| code-summary: "Plot exponent stability"
+
+bl <- rbindlist(lapply(c(1, 5, 15, 30, 60), function(mm) {
+  f  <- apply_filters(make_bars(orders, mm))
+  m  <- lm(log(slip_vw) ~ log(rho), f)
+  f2 <- copy(f)[, rb := cut(rho, unique(quantile(rho, seq(0, 1, length.out = N_BINS + 1))),
+                            include.lowest = TRUE)]
+  bn <- f2[!is.na(rb), .(ms = mean(slip_vw), r = median(rho), n = .N), by = rb]
+  mb <- lm(log(ms) ~ log(r), bn, weights = bn$n)
+  data.table(minutes = mm,
+             `Unbinned regression`  = coef(m)[[2]],
+             `Conditional-mean fit` = coef(mb)[[2]])
+}))
+
+ggplot(melt(bl, id.vars = "minutes", variable.name = "Estimator", value.name = "phi"),
+       aes(x = minutes, y = phi, colour = Estimator)) +
+  geom_hline(yintercept = 0.5, linetype = "dotted", colour = "grey50") +
+  annotate("text", x = 1, y = 0.5, label = "square-root law", vjust = -0.6,
+           hjust = 0, size = 3, colour = "grey45") +
+  geom_line(linewidth = 0.7) +
+  geom_point(size = 2.2) +
+  scale_colour_manual(values = c("Unbinned regression"  = col_data,
+                                 "Conditional-mean fit" = col_model)) +
+  scale_x_log10(breaks = c(1, 5, 15, 30, 60)) +
+  expand_limits(y = 0.4) +
+  labs(
+    title    = "Exponent stability across bar length",
+    subtitle = "The conditional-mean estimator does not depend on the sampling horizon",
+    x = "Bar length (minutes, log scale)", y = "Estimated exponent"
+  )
+```
+
+The estimates hold up. Buys and sells agree to within
+`r sprintf("%.3f", abs(rob[Specification == "Taker buys only", phi] - rob[Specification == "Taker sells only", phi]))`,
+and tightening the trim from keeping 100% of bars to keeping 90% moves $\phi$ by
+less than
+`r sprintf("%.2f", abs(rob[Specification == "Trim: keep 100%", phi] - rob[Specification == "Trim: keep 90%", phi]))`.
+
+Two entries deserve comment. The 1-minute unbinned fit is the one clear outlier,
+at $\phi =$ `r sprintf("%.2f", rob[Specification == "Bar length: 1 min", phi])`; at
+that horizon many bars contain only a handful of orders, so `slip_vw` is often
+close to zero and the log transform amplifies the resulting noise. The
+conditional-mean estimator at the same horizon gives
+`r sprintf("%.2f", bl[minutes == 1][["Conditional-mean fit"]])`, in line with every
+other bar length. Separately, dropping zero-slippage orders *before* aggregating
+raises $\hat\eta$ from `r sprintf("%.5f", eta)` to
+`r sprintf("%.5f", rob[Specification == "Zero-slippage orders dropped first", eta])`,
+exactly as expected: removing the cost-free executions inflates every bar average.
+It is reported for completeness but not used.
+
+# Why not estimate at the order level?
+
+It is natural to want $\rho$ defined per marketable order, and the reason that
+does not work is worth recording. The obstacle is scale. The median order is
+`r sprintf("%.1f", median(orders$base_qty))` SOL against an average daily volume of
+roughly `r sprintf("%.1f", mean(daily_volume$adv, na.rm = TRUE) / 1e6)`M SOL, so
+$\rho \approx 10^{-6}$. Essentially every order fills within one or two book
+levels, and its slippage is pinned by the tick size rather than driven by its size
+— there is no dynamic range for the exponent to be identified from.
+
+```{r}
+#| label: order-level
+#| code-summary: "Order-level fit, for comparison"
+
+orders[, adv       := daily_volume[match(orders$date, date)]$adv]
+orders[, rho_order := base_qty / adv]
+
+ord_sample <- orders[slippage > 0 & rho_order > 0]
+ord_fit    <- lm(log(slippage) ~ log(rho_order), ord_sample)
+
+ord_weeks <- rbindlist(lapply(sort(unique(isoweek(ord_sample$ts))), function(w) {
+  m <- lm(log(slippage) ~ log(rho_order), ord_sample[isoweek(ts) == w])
+  data.table(Week = w, phi = coef(m)[[2]], R2 = summary(m)$r.squared)
+}))
+
+knitr::kable(ord_weeks, digits = 4,
+             col.names = c("ISO week", "$\\hat\\phi$", "$R^2$"),
+             caption = sprintf(
+               "Order-level exponent by week. Full-sample fit: phi = %.3f, R-squared = %.4f, n = %s.",
+               coef(ord_fit)[[2]], summary(ord_fit)$r.squared, comma(nrow(ord_sample))))
+```
+
+The full-sample fit explains
+`r sprintf("%.1f%%", 100 * summary(ord_fit)$r.squared)` of the variation, and the
+weekly estimates range from `r sprintf("%.2f", min(ord_weeks$phi))` to
+`r sprintf("%.2f", max(ord_weeks$phi))` — the parameter is not identified.
+Aggregating to bars fixes this because it lifts $\rho$ into a range where size,
+rather than the tick, determines cost.
+
+# Conclusion
+
+The fitted execution cost function for `r SYMBOL` over `r MONTH` is
+
+$$
+L(\rho) = \hat\eta\,|\rho|^{1+\hat\phi} + \hat\psi\,|\rho|,
+\qquad
+\hat\eta = `r sprintf("%.5f", eta)`,\quad
+\hat\phi = `r sprintf("%.3f", phi)`,\quad
+\hat\psi = `r sprintf("%.5f", psi_vw)`,
+$$
+
+with the conditional-mean estimator giving $\hat\phi =$
+`r sprintf("%.3f", phi_binned)` as the more robust alternative. All figures are in
+USD per SOL. $\hat\psi$ covers the spread only; the venue fee is a known constant
+that adds to it.
+
+```{r}
+#| label: fig-cost
+#| fig-cap: "The estimated per-token cost of crossing, decomposed. Below the crossover the spread dominates; above it, temporary impact does."
+#| code-summary: "Plot the fitted cost function"
+
+crossover <- (psi_vw / eta)^(1 / phi)
+
+curve <- data.table(rho = 10^seq(log10(min(bars$rho)), log10(max(bars$rho)),
+                                 length.out = 300))
+curve[, `Temporary impact`  := 1e4 * eta * rho^phi / mean_price]
+curve[, `Proportional cost` := 1e4 * psi_vw / mean_price]
+curve[, `Total`             := `Temporary impact` + `Proportional cost`]
+
+ggplot(melt(curve, id.vars = "rho", variable.name = "Component", value.name = "bps"),
+       aes(x = rho, y = bps, colour = Component)) +
+  geom_vline(xintercept = crossover, linetype = "dotted", colour = "grey50") +
+  geom_line(linewidth = 0.9) +
+  annotate("text", x = crossover, y = max(curve$Total),
+           label = sprintf("  crossover at rho = %.2f", crossover),
+           hjust = 0, size = 3, colour = "grey35") +
+  scale_colour_manual(values = c("Temporary impact"  = col_model,
+                                 "Proportional cost" = col_muted,
+                                 "Total"             = col_data)) +
+  scale_x_log10(labels = label_number(accuracy = 0.01)) +
+  labs(
+    title    = "Estimated cost of crossing the spread, per token",
+    subtitle = sprintf("%s, %s — eta = %.5f, phi = %.3f, psi = %.5f USD/SOL",
+                       SYMBOL, MONTH, eta, phi, psi_vw),
+    x = expression(rho == v[t]/V[t]), y = "Cost (bps of mid-price)"
+  )
+```
+
+Three things are worth drawing out.
+
+**The exponent is close to the square-root law.** $\hat\phi \approx$
+`r sprintf("%.2f", phi_binned)`–`r sprintf("%.2f", phi)`, converging on $0.5$ as
+the bar length grows. That $L(\rho) \propto \rho^{1+\phi}$ is strictly convex is
+what the optimal-execution problem requires, and the condition holds comfortably:
+$\hat\phi > 0$ with a standard error of
+`r sprintf("%.3f", summary(fit)$coefficients[2, 2])`.
+
+**Spread and impact cross over near $\rho =$ `r sprintf("%.2f", crossover)`.**
+Below that participation rate the fixed cost of crossing dominates the cost of
+walking the book, so a schedule's binding constraint is how *often* it crosses,
+not how hard it pushes. Above it, impact dominates and the trade-off against
+timing risk becomes the live one. For context, the median bar in this sample sits
+at $\rho =$ `r sprintf("%.2f", median(bars$rho))`, below the crossover.
+
+**Costs on this instrument are small in absolute terms.** At $\rho = 1$ — one side
+trading at the market's entire average rate — the total per-token cost is about
+`r sprintf("%.2f", 1e4 * (psi_vw + eta) / mean_price)` bps before fees. For any
+schedule operating below the crossover, the venue fee is the larger part of the
+total cost.
+
+A caveat on external validity: this is one month of one instrument, and August
+2024 contains the 5 August volatility event. The weekly breakdown in the
+robustness table is reassuring, but confirming $\hat\phi$ on other months and
+other instruments — both available in `data/` — is the natural next step.

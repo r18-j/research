@@ -1,0 +1,1577 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><head>
+
+<meta charset="utf-8">
+<meta name="generator" content="quarto-1.9.38">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+
+<meta name="author" content="Raj Kundi">
+<meta name="dcterms.date" content="2026-08-22">
+
+<title>Estimation of the Execution Cost Function</title>
+<style>
+/* Default styles provided by pandoc.
+** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+*/
+code{white-space: pre-wrap;}
+span.smallcaps{font-variant: small-caps;}
+div.columns{display: flex; gap: min(4vw, 1.5em);}
+div.column{flex: auto; overflow-x: auto;}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+ul.task-list{list-style: none;}
+ul.task-list li input[type="checkbox"] {
+  width: 0.8em;
+  margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */ 
+  vertical-align: middle;
+}
+/* CSS for syntax highlighting */
+html { -webkit-text-size-adjust: 100%; }
+pre > code.sourceCode { white-space: pre; position: relative; }
+pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+pre > code.sourceCode > span:empty { height: 1.2em; }
+.sourceCode { overflow: visible; }
+code.sourceCode > span { color: inherit; text-decoration: inherit; }
+div.sourceCode { margin: 1em 0; }
+pre.sourceCode { margin: 0; }
+@media screen {
+div.sourceCode { overflow: auto; }
+}
+@media print {
+pre > code.sourceCode { white-space: pre-wrap; }
+pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+}
+pre.numberSource code
+  { counter-reset: source-line 0; }
+pre.numberSource code > span
+  { position: relative; left: -4em; counter-increment: source-line; }
+pre.numberSource code > span > a:first-child::before
+  { content: counter(source-line);
+    position: relative; left: -1em; text-align: right; vertical-align: baseline;
+    border: none; display: inline-block;
+    -webkit-touch-callout: none; -webkit-user-select: none;
+    -khtml-user-select: none; -moz-user-select: none;
+    -ms-user-select: none; user-select: none;
+    padding: 0 4px; width: 4em;
+  }
+pre.numberSource { margin-left: 3em;  padding-left: 4px; }
+div.sourceCode
+  {   }
+@media screen {
+pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+}
+</style>
+
+
+<script src="execution_cost_function_files/libs/clipboard/clipboard.min.js"></script>
+<script src="execution_cost_function_files/libs/quarto-html/quarto.js" type="module"></script>
+<script src="execution_cost_function_files/libs/quarto-html/tabsets/tabsets.js" type="module"></script>
+<script src="execution_cost_function_files/libs/quarto-html/popper.min.js"></script>
+<script src="execution_cost_function_files/libs/quarto-html/tippy.umd.min.js"></script>
+<script src="execution_cost_function_files/libs/quarto-html/anchor.min.js"></script>
+<link href="execution_cost_function_files/libs/quarto-html/tippy.css" rel="stylesheet">
+<link href="execution_cost_function_files/libs/quarto-html/quarto-syntax-highlighting-15634bcf2e68342d4ad2dfa704d543f6.css" rel="stylesheet" id="quarto-text-highlighting-styles">
+<script src="execution_cost_function_files/libs/bootstrap/bootstrap.min.js"></script>
+<link href="execution_cost_function_files/libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
+<link href="execution_cost_function_files/libs/bootstrap/bootstrap-efbb37e9afcc02144ebbc7afd12a776f.min.css" rel="stylesheet" append-hash="true" id="quarto-bootstrap" data-mode="light">
+
+  <script src="https://cdnjs.cloudflare.com/polyfill/v3/polyfill.min.js?features=es6"></script>
+  <script defer="" src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml-full.js" type="text/javascript"></script>
+
+<script type="text/javascript">
+const typesetMath = (el) => {
+  if (window.MathJax) {
+    // MathJax Typeset
+    window.MathJax.typeset([el]);
+  } else if (window.katex) {
+    // KaTeX Render
+    var mathElements = el.getElementsByClassName("math");
+    var macros = [];
+    for (var i = 0; i < mathElements.length; i++) {
+      var texText = mathElements[i].firstChild;
+      if (mathElements[i].tagName == "SPAN" && texText && texText.data) {
+        window.katex.render(texText.data, mathElements[i], {
+          displayMode: mathElements[i].classList.contains('display'),
+          throwOnError: false,
+          macros: macros,
+          fleqn: false
+        });
+      }
+    }
+  }
+}
+window.Quarto = {
+  typesetMath
+};
+</script>
+
+</head>
+
+<body class="quarto-light">
+
+<div id="quarto-content" class="page-columns page-rows-contents page-layout-article">
+<div id="quarto-margin-sidebar" class="sidebar margin-sidebar">
+  <nav id="TOC" role="doc-toc" class="toc-active">
+    <h2 id="toc-title">Table of contents</h2>
+   
+  <ul>
+  <li><a href="#introduction" id="toc-introduction" class="nav-link active" data-scroll-target="#introduction">Introduction</a>
+  <ul class="collapse">
+  <li><a href="#what-each-parameter-is-measured-against" id="toc-what-each-parameter-is-measured-against" class="nav-link" data-scroll-target="#what-each-parameter-is-measured-against">What each parameter is measured against</a></li>
+  </ul></li>
+  <li><a href="#data" id="toc-data" class="nav-link" data-scroll-target="#data">Data</a>
+  <ul class="collapse">
+  <li><a href="#sources" id="toc-sources" class="nav-link" data-scroll-target="#sources">Sources</a></li>
+  <li><a href="#attaching-the-prevailing-quote" id="toc-attaching-the-prevailing-quote" class="nav-link" data-scroll-target="#attaching-the-prevailing-quote">Attaching the prevailing quote</a></li>
+  </ul></li>
+  <li><a href="#reconstructing-marketable-orders" id="toc-reconstructing-marketable-orders" class="nav-link" data-scroll-target="#reconstructing-marketable-orders">Reconstructing marketable orders</a></li>
+  <li><a href="#the-proportional-cost-psi" id="toc-the-proportional-cost-psi" class="nav-link" data-scroll-target="#the-proportional-cost-psi">The proportional cost <span class="math inline">\(\psi\)</span></a></li>
+  <li><a href="#the-participation-rate" id="toc-the-participation-rate" class="nav-link" data-scroll-target="#the-participation-rate">The participation rate</a>
+  <ul class="collapse">
+  <li><a href="#why-the-unit-of-analysis-must-be-a-bar" id="toc-why-the-unit-of-analysis-must-be-a-bar" class="nav-link" data-scroll-target="#why-the-unit-of-analysis-must-be-a-bar">Why the unit of analysis must be a bar</a></li>
+  <li><a href="#the-market-volume-rate-v_t" id="toc-the-market-volume-rate-v_t" class="nav-link" data-scroll-target="#the-market-volume-rate-v_t">The market volume rate <span class="math inline">\(V_t\)</span></a></li>
+  <li><a href="#bar-construction" id="toc-bar-construction" class="nav-link" data-scroll-target="#bar-construction">Bar construction</a></li>
+  </ul></li>
+  <li><a href="#data-cleaning" id="toc-data-cleaning" class="nav-link" data-scroll-target="#data-cleaning">Data cleaning</a></li>
+  <li><a href="#estimating-eta-and-phi" id="toc-estimating-eta-and-phi" class="nav-link" data-scroll-target="#estimating-eta-and-phi">Estimating <span class="math inline">\(\eta\)</span> and <span class="math inline">\(\phi\)</span></a></li>
+  <li><a href="#robustness" id="toc-robustness" class="nav-link" data-scroll-target="#robustness">Robustness</a></li>
+  <li><a href="#why-not-estimate-at-the-order-level" id="toc-why-not-estimate-at-the-order-level" class="nav-link" data-scroll-target="#why-not-estimate-at-the-order-level">Why not estimate at the order level?</a></li>
+  <li><a href="#conclusion" id="toc-conclusion" class="nav-link" data-scroll-target="#conclusion">Conclusion</a></li>
+  </ul>
+</nav>
+</div>
+<main class="content" id="quarto-document-content">
+
+<header id="title-block-header" class="quarto-title-block default">
+<div class="quarto-title">
+<h1 class="title">Estimation of the Execution Cost Function</h1>
+</div>
+
+
+
+<div class="quarto-title-meta">
+
+    <div>
+    <div class="quarto-title-meta-heading">Author</div>
+    <div class="quarto-title-meta-contents">
+             <p>Raj Kundi </p>
+          </div>
+  </div>
+    
+    <div>
+    <div class="quarto-title-meta-heading">Published</div>
+    <div class="quarto-title-meta-contents">
+      <p class="date">August 22, 2026</p>
+    </div>
+  </div>
+  
+    
+  </div>
+  
+
+
+</header>
+
+
+<div class="cell">
+<details class="code-fold">
+<summary>Estimation parameters</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb1"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a>SYMBOL      <span class="ot">&lt;-</span> <span class="st">"SOLUSD_PERP"</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>MONTH       <span class="ot">&lt;-</span> <span class="st">"2024-08"</span>   <span class="co"># estimation sample</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>WARMUP      <span class="ot">&lt;-</span> <span class="st">"2024-07"</span>   <span class="co"># read for daily volume only, to warm up the trailing ADV</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>BAR_MINUTES <span class="ot">&lt;-</span> <span class="dv">5</span>     <span class="co"># bar length over which the participation rate is defined</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>ADV_WINDOW  <span class="ot">&lt;-</span> <span class="dv">10</span>    <span class="co"># trailing days in the average-daily-volume estimate of V_t</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>VOL_WINDOW  <span class="ot">&lt;-</span> <span class="dv">15</span>    <span class="co"># bars in the rolling volatility estimate used for filtering</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>TRIM_Q      <span class="ot">&lt;-</span> <span class="fl">0.95</span>  <span class="co"># drop the top 5% of rolling volatility and of bar volume</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>N_BINS      <span class="ot">&lt;-</span> <span class="dv">20</span>    <span class="co"># participation-rate quantile bins for the conditional mean</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+</div>
+<section id="introduction" class="level1">
+<h1>Introduction</h1>
+<p>In the Almgren–Chriss framework the market volume process is <span class="math inline">\(V_t\)</span>, and a trader executing at rate <span class="math inline">\(v_t\)</span> pays, per base asset transacted at time <span class="math inline">\(t\)</span>,</p>
+<p><span class="math display">\[
+S_t + g\!\left(\frac{v_t}{V_t}\right),
+\]</span></p>
+<p>where <span class="math inline">\(S_t\)</span> is the mid-price. If the trader buys the trading price is above the mid-price; if she sells it is below. Writing <span class="math inline">\(\rho = v_t / V_t\)</span> for the <strong>participation rate</strong>, the price paid per token is</p>
+<p><span class="math display">\[
+S_t + g(\rho) = S_t + \eta\,\operatorname{sign}(\rho)\,|\rho|^{\phi} + \psi\,\operatorname{sign}(\rho).
+\]</span></p>
+<p>Rather than working with <span class="math inline">\(g\)</span> directly it is convenient to use the <strong>execution cost function</strong> <span class="math inline">\(L(\rho) = \rho\, g(\rho)\)</span>, which measures cost per unit time rather than per unit traded. If <span class="math inline">\(X_t\)</span> is the trader’s cash account process, then</p>
+<p><span class="math display">\[
+\begin{array}{rcl}
+d X_t &amp; = &amp; - v_t \left( S_t + g\!\left( \frac{v_t}{V_t} \right) \right) dt \\[4pt]
+      &amp; = &amp; -v_t S_t \, dt - V_t\, L\!\left( \frac{v_t}{V_t} \right) dt .
+\end{array}
+\]</span></p>
+<p><span class="math inline">\(L\)</span> is taken to be a strictly convex power function,</p>
+<p><span class="math display">\[
+L(\rho) = \eta\,|\rho|^{1 + \phi} + \psi\,|\rho|, \qquad \eta, \psi &gt; 0,\ \phi &gt; 0,
+\]</span></p>
+<p>whose two terms are economically distinct.</p>
+<p><strong>The proportional term <span class="math inline">\(\psi|\rho|\)</span></strong> is linear, and is the per-token add-on: a constant mark-up or mark-down paid on every asset traded, no matter how fast or slow the trader goes. It is a <em>fixed transaction cost</em> — the effective spread, the venue fee, and any taxes or similar charges — not a liquidity cost.</p>
+<p><strong>The super-linear term <span class="math inline">\(\eta|\rho|^{1+\phi}\)</span></strong> models <strong>temporary market impact</strong>. When a trader trades faster she consumes more liquidity and the price moves against her own trading pressure. This is the term that makes the optimal execution problem non-trivial, and estimating its two parameters is the main work of this notebook.</p>
+<p>This notebook estimates <span class="math inline">\(\psi\)</span>, <span class="math inline">\(\eta\)</span> and <span class="math inline">\(\phi\)</span> from one month of Binance SOLUSD_PERP perpetual futures data. It is the companion to <code>../market_impact/estimation_of_market_impact.qmd</code>, which estimates the <em>permanent</em> impact coefficient <span class="math inline">\(k\)</span> from the same data; together the two parameterise the trading-curve problem.</p>
+<section id="what-each-parameter-is-measured-against" class="level2">
+<h2 class="anchored" data-anchor-id="what-each-parameter-is-measured-against">What each parameter is measured against</h2>
+<p>The two cost terms are separated by choosing the right price benchmark, and getting this right is what makes the estimation work at all:</p>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 25%">
+<col style="width: 25%">
+<col style="width: 25%">
+<col style="width: 25%">
+</colgroup>
+<thead>
+<tr class="header">
+<th>Parameter</th>
+<th>Measured from</th>
+<th>Measured to</th>
+<th>Interpretation</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><span class="math inline">\(\psi\)</span></td>
+<td>mid-price</td>
+<td>best bid/ask</td>
+<td>half the quoted spread: the cost of crossing, paid even by an infinitesimally small order</td>
+</tr>
+<tr class="even">
+<td><span class="math inline">\(\eta,\ \phi\)</span></td>
+<td>best bid/ask</td>
+<td>realised price</td>
+<td><strong>slippage</strong>: the cost of walking the book beyond the touch</td>
+</tr>
+</tbody>
+</table>
+<p>Measuring slippage from the <em>touch</em> rather than from the mid is what stops the two terms absorbing one another. An order that fills entirely at the best quote has zero slippage by construction and contributes only <span class="math inline">\(\psi\)</span>.</p>
+</section>
+</section>
+<section id="data" class="level1">
+<h1>Data</h1>
+<section id="sources" class="level2">
+<h2 class="anchored" data-anchor-id="sources">Sources</h2>
+<p>Two tick-level Binance feeds for SOLUSD_PERP, 2024-08:</p>
+<ul>
+<li><strong><code>trades</code></strong> — individual executions. Each row is a <em>fill</em>, carrying <code>price</code>, <code>base_qty</code> (size in SOL), millisecond <code>time</code>, and <code>is_buyer_maker</code>, which signs the taker side: <code>is_buyer_maker == TRUE</code> means the <em>taker was selling</em> into the bid; <code>FALSE</code> means the taker was buying from the ask.</li>
+<li><strong><code>bookTicker</code></strong> — best bid/ask snapshots, from which the mid-price process and the spread are reconstructed. Only the three columns needed are read, since the raw file is several gigabytes.</li>
+</ul>
+<div class="cell">
+<details class="code-fold">
+<summary>Load trades and bookTicker</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb2"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a>trades <span class="ot">&lt;-</span> <span class="fu">fread</span>(<span class="fu">sprintf</span>(<span class="st">"data/%s-trades-%s.csv"</span>, SYMBOL, MONTH))</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>bookTicker <span class="ot">&lt;-</span> <span class="fu">fread</span>(</span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">sprintf</span>(<span class="st">"data/%s-bookTicker-%s.csv"</span>, SYMBOL, MONTH),</span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">select =</span> <span class="fu">c</span>(<span class="st">"best_bid_price"</span>, <span class="st">"best_ask_price"</span>, <span class="st">"transaction_time"</span>)</span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>trades[, ts   <span class="sc">:</span><span class="er">=</span> <span class="fu">as.POSIXct</span>(time <span class="sc">/</span> <span class="dv">1000</span>, <span class="at">origin =</span> <span class="st">"1970-01-01"</span>, <span class="at">tz =</span> <span class="st">"UTC"</span>)]</span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>trades[, date <span class="sc">:</span><span class="er">=</span> <span class="fu">as.Date</span>(ts)]</span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a><span class="co"># is_buyer_maker == TRUE  =&gt;  the maker was the buyer  =&gt;  the TAKER sold.</span></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>trades[, taker_buy <span class="sc">:</span><span class="er">=</span> <span class="sc">!</span>is_buyer_maker]</span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>bookTicker[, mid_price     <span class="sc">:</span><span class="er">=</span> (best_bid_price <span class="sc">+</span> best_ask_price) <span class="sc">/</span> <span class="dv">2</span>]</span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a>bookTicker[, quoted_spread <span class="sc">:</span><span class="er">=</span> best_ask_price <span class="sc">-</span> best_bid_price]</span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a><span class="co"># Half the quoted spread: what a marketable order concedes just by crossing.</span></span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a>bookTicker[, half_spread   <span class="sc">:</span><span class="er">=</span> quoted_spread <span class="sc">/</span> <span class="dv">2</span>]</span>
+<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a>bookTicker[, ts <span class="sc">:</span><span class="er">=</span> <span class="fu">as.POSIXct</span>(transaction_time <span class="sc">/</span> <span class="dv">1000</span>, <span class="at">origin =</span> <span class="st">"1970-01-01"</span>, <span class="at">tz =</span> <span class="st">"UTC"</span>)]</span>
+<span id="cb2-17"><a href="#cb2-17" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-18"><a href="#cb2-18" aria-hidden="true" tabindex="-1"></a><span class="fu">setorder</span>(trades, time, id)</span>
+<span id="cb2-19"><a href="#cb2-19" aria-hidden="true" tabindex="-1"></a><span class="fu">setorder</span>(bookTicker, transaction_time)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+</div>
+<p>The sample contains 7,923,220 fills and 74,641,633 quote updates spanning 2024-08-01 to 2024-08-31.</p>
+</section>
+<section id="attaching-the-prevailing-quote" class="level2">
+<h2 class="anchored" data-anchor-id="attaching-the-prevailing-quote">Attaching the prevailing quote</h2>
+<p>Each fill is matched to the last quote strictly <em>before</em> it. The strict inequality matters: a quote stamped at the same millisecond as the fill may already reflect that fill’s own consumption of the book, which would mechanically shrink the measured slippage toward zero.</p>
+<div class="cell">
+<details class="code-fold">
+<summary>Non-equi join of fills to the prevailing quote</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb3"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="fu">setkey</span>(bookTicker, transaction_time)</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>trades[, pre_bid <span class="sc">:</span><span class="er">=</span> bookTicker[trades, on <span class="ot">=</span> .(transaction_time <span class="sc">&lt;</span> time),</span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>                               mult <span class="ot">=</span> <span class="st">"last"</span>, .(best_bid_price)]<span class="sc">$</span>best_bid_price]</span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>trades[, pre_ask <span class="sc">:</span><span class="er">=</span> bookTicker[trades, on <span class="ot">=</span> .(transaction_time <span class="sc">&lt;</span> time),</span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>                               mult <span class="ot">=</span> <span class="st">"last"</span>, .(best_ask_price)]<span class="sc">$</span>best_ask_price]</span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>trades[, pre_mid <span class="sc">:</span><span class="er">=</span> (pre_bid <span class="sc">+</span> pre_ask) <span class="sc">/</span> <span class="dv">2</span>]</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+</div>
+<div class="cell">
+<details class="code-fold">
+<summary>Plot the spread process</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb4"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a>spread_plot <span class="ot">&lt;-</span> bookTicker[<span class="fu">seq</span>(<span class="dv">1</span>, .N, <span class="at">by =</span> <span class="dv">2000</span>)]</span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>spread_plot[, half_spread_ma <span class="sc">:</span><span class="er">=</span> <span class="fu">rollmean</span>(half_spread, <span class="at">k =</span> <span class="dv">200</span>, <span class="at">fill =</span> <span class="cn">NA</span>, <span class="at">align =</span> <span class="st">"right"</span>)]</span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a><span class="fu">ggplot</span>(spread_plot, <span class="fu">aes</span>(<span class="at">x =</span> ts)) <span class="sc">+</span></span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_line</span>(<span class="fu">aes</span>(<span class="at">y =</span> half_spread, <span class="at">colour =</span> <span class="st">"Raw"</span>), <span class="at">alpha =</span> <span class="fl">0.5</span>, <span class="at">linewidth =</span> <span class="fl">0.25</span>) <span class="sc">+</span></span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_line</span>(<span class="fu">aes</span>(<span class="at">y =</span> half_spread_ma, <span class="at">colour =</span> <span class="st">"Rolling mean"</span>), <span class="at">linewidth =</span> <span class="fl">0.6</span>, <span class="at">na.rm =</span> <span class="cn">TRUE</span>) <span class="sc">+</span></span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_colour_manual</span>(<span class="at">values =</span> <span class="fu">c</span>(<span class="st">"Raw"</span> <span class="ot">=</span> col_muted, <span class="st">"Rolling mean"</span> <span class="ot">=</span> col_data)) <span class="sc">+</span></span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a>  <span class="co"># Log scale: the series sits at the minimum tick for most of the month, so a</span></span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a>  <span class="co"># linear axis is entirely taken up by a handful of spikes.</span></span>
+<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_y_log10</span>(<span class="at">labels =</span> <span class="fu">label_number</span>(<span class="at">drop0trailing =</span> <span class="cn">TRUE</span>)) <span class="sc">+</span></span>
+<span id="cb4-11"><a href="#cb4-11" aria-hidden="true" tabindex="-1"></a>  <span class="fu">annotation_logticks</span>(<span class="at">sides =</span> <span class="st">"l"</span>, <span class="at">colour =</span> <span class="st">"grey70"</span>, <span class="at">linewidth =</span> <span class="fl">0.25</span>) <span class="sc">+</span></span>
+<span id="cb4-12"><a href="#cb4-12" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(</span>
+<span id="cb4-13"><a href="#cb4-13" aria-hidden="true" tabindex="-1"></a>    <span class="at">title    =</span> <span class="st">"Half the quoted spread"</span>,</span>
+<span id="cb4-14"><a href="#cb4-14" aria-hidden="true" tabindex="-1"></a>    <span class="at">subtitle =</span> <span class="fu">sprintf</span>(<span class="st">"%s, %s — every 2,000th quote update, rolling mean over 200 sampled points"</span>,</span>
+<span id="cb4-15"><a href="#cb4-15" aria-hidden="true" tabindex="-1"></a>                       SYMBOL, MONTH),</span>
+<span id="cb4-16"><a href="#cb4-16" aria-hidden="true" tabindex="-1"></a>    <span class="at">x =</span> <span class="cn">NULL</span>, <span class="at">y =</span> <span class="st">"Half spread (USD per SOL)"</span></span>
+<span id="cb4-17"><a href="#cb4-17" aria-hidden="true" tabindex="-1"></a>  )</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output-display">
+<div id="fig-spread" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-spread-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<img src="execution_cost_function_files/figure-html/fig-spread-1.png" class="img-fluid figure-img" width="768">
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-spread-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;1: Half the quoted spread through the month. The instrument sits at the minimum tick almost all of the time; the visible excursions are the news and liquidation episodes that the filtering step below is designed to remove.
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
+</section>
+</section>
+<section id="reconstructing-marketable-orders" class="level1">
+<h1>Reconstructing marketable orders</h1>
+<p>A single marketable order that sweeps several price levels is reported by the exchange as <strong>several fill rows sharing one millisecond timestamp</strong>. Treating those rows as separate trades destroys precisely the signal we are after: the first fragment executes at the touch with zero slippage, and only the later fragments show the concession. Fills are therefore aggregated into orders, and the order’s realised price is the size-weighted average of its fills,</p>
+<p><span class="math display">\[
+\bar{P} = \frac{\sum_i q_i p_i}{\sum_i q_i}, \qquad
+\text{slippage} =
+\begin{cases}
+\bar{P} - \text{ask}^{-} &amp; \text{taker buys,} \\[2pt]
+\text{bid}^{-} - \bar{P} &amp; \text{taker sells,}
+\end{cases}
+\]</span></p>
+<p>where <span class="math inline">\(\text{ask}^{-}\)</span> and <span class="math inline">\(\text{bid}^{-}\)</span> are the quotes prevailing before the order’s first fill. Grouping is by timestamp <em>and</em> taker side rather than by timestamp alone: only 0.16% of timestamps contain both directions, but merging a buy with a sell would net opposing flow into a meaningless average price.</p>
+<div class="cell">
+<details class="code-fold">
+<summary>Aggregate fills into marketable orders</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb5"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a>trades[, order_id <span class="sc">:</span><span class="er">=</span> <span class="fu">rleid</span>(time, taker_buy)]</span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>orders <span class="ot">&lt;-</span> trades[, .(</span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">ts        =</span> <span class="fu">first</span>(ts),</span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">date      =</span> <span class="fu">first</span>(date),</span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">taker_buy =</span> <span class="fu">first</span>(taker_buy),</span>
+<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">base_qty  =</span> <span class="fu">sum</span>(base_qty),</span>
+<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">notional  =</span> <span class="fu">sum</span>(base_qty <span class="sc">*</span> price),</span>
+<span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a>  <span class="at">n_fills   =</span> .N,</span>
+<span id="cb5-10"><a href="#cb5-10" aria-hidden="true" tabindex="-1"></a>  <span class="at">pre_bid   =</span> <span class="fu">first</span>(pre_bid),</span>
+<span id="cb5-11"><a href="#cb5-11" aria-hidden="true" tabindex="-1"></a>  <span class="at">pre_ask   =</span> <span class="fu">first</span>(pre_ask),</span>
+<span id="cb5-12"><a href="#cb5-12" aria-hidden="true" tabindex="-1"></a>  <span class="at">pre_mid   =</span> <span class="fu">first</span>(pre_mid)</span>
+<span id="cb5-13"><a href="#cb5-13" aria-hidden="true" tabindex="-1"></a>), by <span class="ot">=</span> order_id]</span>
+<span id="cb5-14"><a href="#cb5-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-15"><a href="#cb5-15" aria-hidden="true" tabindex="-1"></a>orders[, exec_price  <span class="sc">:</span><span class="er">=</span> notional <span class="sc">/</span> base_qty]</span>
+<span id="cb5-16"><a href="#cb5-16" aria-hidden="true" tabindex="-1"></a>orders[, slippage    <span class="sc">:</span><span class="er">=</span> <span class="fu">fifelse</span>(taker_buy, exec_price <span class="sc">-</span> pre_ask, pre_bid <span class="sc">-</span> exec_price)]</span>
+<span id="cb5-17"><a href="#cb5-17" aria-hidden="true" tabindex="-1"></a>orders[, half_spread <span class="sc">:</span><span class="er">=</span> (pre_ask <span class="sc">-</span> pre_bid) <span class="sc">/</span> <span class="dv">2</span>]</span>
+<span id="cb5-18"><a href="#cb5-18" aria-hidden="true" tabindex="-1"></a><span class="fu">setorder</span>(orders, ts)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+</div>
+<p>7,923,220 fills collapse to 3,600,174 orders. The resulting slippage distribution is dominated by a point mass at exactly zero.</p>
+<div class="cell">
+<details class="code-fold">
+<summary>Plot the order slippage distribution</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb6"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a>dist <span class="ot">&lt;-</span> orders[, .(<span class="at">bucket =</span> <span class="fu">fcase</span>(</span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a>  slippage <span class="sc">&lt;</span>  <span class="dv">0</span>, <span class="st">"Negative"</span>,</span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a>  slippage <span class="sc">==</span> <span class="dv">0</span>, <span class="st">"Exactly zero"</span>,</span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">default        =</span> <span class="st">"Positive"</span></span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a>))][, .N, by <span class="ot">=</span> bucket]</span>
+<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a>dist[, share  <span class="sc">:</span><span class="er">=</span> N <span class="sc">/</span> <span class="fu">sum</span>(N)]</span>
+<span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a>dist[, bucket <span class="sc">:</span><span class="er">=</span> <span class="fu">factor</span>(bucket, <span class="at">levels =</span> <span class="fu">c</span>(<span class="st">"Negative"</span>, <span class="st">"Exactly zero"</span>, <span class="st">"Positive"</span>))]</span>
+<span id="cb6-8"><a href="#cb6-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-9"><a href="#cb6-9" aria-hidden="true" tabindex="-1"></a><span class="fu">ggplot</span>(dist, <span class="fu">aes</span>(<span class="at">x =</span> bucket, <span class="at">y =</span> share)) <span class="sc">+</span></span>
+<span id="cb6-10"><a href="#cb6-10" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_col</span>(<span class="at">fill =</span> col_data, <span class="at">width =</span> <span class="fl">0.55</span>) <span class="sc">+</span></span>
+<span id="cb6-11"><a href="#cb6-11" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_text</span>(<span class="fu">aes</span>(<span class="at">label =</span> <span class="fu">percent</span>(share, <span class="at">accuracy =</span> <span class="fl">0.1</span>)),</span>
+<span id="cb6-12"><a href="#cb6-12" aria-hidden="true" tabindex="-1"></a>            <span class="at">vjust =</span> <span class="sc">-</span><span class="fl">0.6</span>, <span class="at">size =</span> <span class="fl">3.4</span>, <span class="at">colour =</span> <span class="st">"grey25"</span>) <span class="sc">+</span></span>
+<span id="cb6-13"><a href="#cb6-13" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_y_continuous</span>(<span class="at">labels =</span> <span class="fu">percent_format</span>(), <span class="at">expand =</span> <span class="fu">expansion</span>(<span class="at">mult =</span> <span class="fu">c</span>(<span class="dv">0</span>, <span class="fl">0.14</span>))) <span class="sc">+</span></span>
+<span id="cb6-14"><a href="#cb6-14" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(</span>
+<span id="cb6-15"><a href="#cb6-15" aria-hidden="true" tabindex="-1"></a>    <span class="at">title    =</span> <span class="st">"Most marketable orders never leave the touch"</span>,</span>
+<span id="cb6-16"><a href="#cb6-16" aria-hidden="true" tabindex="-1"></a>    <span class="at">subtitle =</span> <span class="fu">sprintf</span>(<span class="st">"%s orders, %s"</span>, <span class="fu">comma</span>(n_orders), MONTH),</span>
+<span id="cb6-17"><a href="#cb6-17" aria-hidden="true" tabindex="-1"></a>    <span class="at">x =</span> <span class="cn">NULL</span>, <span class="at">y =</span> <span class="st">"Share of orders"</span></span>
+<span id="cb6-18"><a href="#cb6-18" aria-hidden="true" tabindex="-1"></a>  )</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output-display">
+<div id="fig-slippage-dist" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-slippage-dist-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<img src="execution_cost_function_files/figure-html/fig-slippage-dist-1.png" class="img-fluid figure-img" width="768">
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-slippage-dist-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;2: Order slippage relative to the touch. The bar at zero is not bad data — it is every order that filled entirely at the best quote, and it holds most of the sample.
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<p>69.5% of orders execute entirely at the best quote and so have exactly zero slippage, 26.8% pay a positive concession, and 3.7% are negative. The negative values are a measurement artifact rather than a free lunch: they arise when the book improves between the quote snapshot and the fill, or when hidden liquidity rests inside the spread.</p>
+<div class="callout callout-style-default callout-note callout-titled">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Note</span>Why the zeros are kept here but dropped later
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>Zero-slippage orders carry no information about the <em>shape</em> of <span class="math inline">\(g\)</span>, and in a log-log regression they cannot even be represented. But they are genuine zero-cost executions, and the quantity being modelled is the <em>average</em> cost of executing a given quantity. Discarding them before averaging would overstate the cost of every bar that contains one.</p>
+<p>They are therefore retained inside the volume-weighted bar average and dropped only at the bar level, where they are rare. The alternative — dropping them first — is estimated and reported in the robustness table.</p>
+</div>
+</div>
+</section>
+<section id="the-proportional-cost-psi" class="level1">
+<h1>The proportional cost <span class="math inline">\(\psi\)</span></h1>
+<p><span class="math inline">\(\psi\)</span> is the per-token cost that does not depend on trading speed. It has two components:</p>
+<ol type="1">
+<li><strong>The effective spread</strong> — the distance from the mid-price to the touch, which is half the quoted spread. This is directly measurable and is the part estimated here.</li>
+<li><strong>The venue fee.</strong> Fees are <em>not</em> embedded in the <code>price</code> field of the trades feed, so there is nothing in this data to estimate. The fee is a known constant for any given account tier and simply adds to <span class="math inline">\(\psi\)</span>.</li>
+</ol>
+<p>The spread is size-weighted, since what matters for execution cost is the spread prevailing when volume actually trades, not the spread averaged over idle time.</p>
+<div class="cell">
+<details class="code-fold">
+<summary>Estimate the proportional cost</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb7"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a>psi_vw     <span class="ot">&lt;-</span> orders[, <span class="fu">sum</span>(base_qty <span class="sc">*</span> half_spread) <span class="sc">/</span> <span class="fu">sum</span>(base_qty)]</span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a>psi_median <span class="ot">&lt;-</span> <span class="fu">median</span>(orders<span class="sc">$</span>half_spread)</span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a>mean_price <span class="ot">&lt;-</span> orders[, <span class="fu">sum</span>(notional) <span class="sc">/</span> <span class="fu">sum</span>(base_qty)]</span>
+<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-5"><a href="#cb7-5" aria-hidden="true" tabindex="-1"></a>psi_vw_bps     <span class="ot">&lt;-</span> <span class="fl">1e4</span> <span class="sc">*</span> psi_vw <span class="sc">/</span> mean_price</span>
+<span id="cb7-6"><a href="#cb7-6" aria-hidden="true" tabindex="-1"></a>psi_median_bps <span class="ot">&lt;-</span> <span class="fl">1e4</span> <span class="sc">*</span> psi_median <span class="sc">/</span> mean_price</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+</div>
+<table class="caption-top table">
+<thead>
+<tr class="header">
+<th>Estimate</th>
+<th>USD per SOL</th>
+<th>bps of mid</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>Volume-weighted mean half-spread</td>
+<td>0.008801</td>
+<td>0.614</td>
+</tr>
+<tr class="even">
+<td>Median half-spread</td>
+<td>0.000500</td>
+<td>0.035</td>
+</tr>
+</tbody>
+</table>
+<p>The volume-weighted figure is an order of magnitude above the median because size arrives when the spread is wide. Since <span class="math inline">\(\psi\)</span> is meant to price the cost actually paid, the volume-weighted estimate</p>
+<p><span class="math display">\[
+\hat\psi = 0.008801 \ \text{USD per SOL} \approx 0.61 \ \text{bps}
+\]</span></p>
+<p>is the one carried forward. It excludes fees, which on a typical taker tier are one to two orders of magnitude larger than the spread on this instrument.</p>
+</section>
+<section id="the-participation-rate" class="level1">
+<h1>The participation rate</h1>
+<section id="why-the-unit-of-analysis-must-be-a-bar" class="level2">
+<h2 class="anchored" data-anchor-id="why-the-unit-of-analysis-must-be-a-bar">Why the unit of analysis must be a bar</h2>
+<p><span class="math inline">\(\rho = v_t / V_t\)</span> is a ratio of two <em>rates</em>: the trader’s execution rate and the market’s volume rate, over the same horizon. A single order’s size divided by a whole day’s volume is not that ratio, and it produces <span class="math inline">\(\rho \approx 10^{-6}\)</span> — five orders of magnitude below the participation rates any real execution schedule operates at. The section <a href="#why-not-estimate-at-the-order-level">Why not estimate at the order level?</a> shows empirically that the exponent is simply not identified at that scale.</p>
+<p>The estimation is therefore run on <strong>5-minute bars, split by taker side</strong>. Within a bar, one side’s takers are treated as a single trader executing a schedule: <span class="math inline">\(v\)</span> is that side’s total volume and <span class="math inline">\(V\)</span> is the market’s volume rate over the same window. This mirrors the bar construction used for permanent impact in the companion notebook.</p>
+</section>
+<section id="the-market-volume-rate-v_t" class="level2">
+<h2 class="anchored" data-anchor-id="the-market-volume-rate-v_t">The market volume rate <span class="math inline">\(V_t\)</span></h2>
+<p><span class="math inline">\(V_t\)</span> is a trailing 10-day average daily volume, lagged one day so that no part of the estimate uses information from the day it is applied to. The preceding month is read for its daily volumes only, so the trailing window is fully populated from the first day of the sample.</p>
+<div class="cell">
+<details class="code-fold">
+<summary>Trailing average daily volume</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb8"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a>warmup <span class="ot">&lt;-</span> <span class="fu">fread</span>(<span class="fu">sprintf</span>(<span class="st">"data/%s-trades-%s.csv"</span>, SYMBOL, WARMUP),</span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a>                <span class="at">select =</span> <span class="fu">c</span>(<span class="st">"base_qty"</span>, <span class="st">"time"</span>))</span>
+<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a>warmup[, date <span class="sc">:</span><span class="er">=</span> <span class="fu">as.Date</span>(<span class="fu">as.POSIXct</span>(<span class="fu">as.numeric</span>(time) <span class="sc">/</span> <span class="dv">1000</span>,</span>
+<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a>                                    <span class="at">origin =</span> <span class="st">"1970-01-01"</span>, <span class="at">tz =</span> <span class="st">"UTC"</span>))]</span>
+<span id="cb8-5"><a href="#cb8-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-6"><a href="#cb8-6" aria-hidden="true" tabindex="-1"></a>daily_volume <span class="ot">&lt;-</span> <span class="fu">rbind</span>(</span>
+<span id="cb8-7"><a href="#cb8-7" aria-hidden="true" tabindex="-1"></a>  warmup[, .(<span class="at">volume =</span> <span class="fu">sum</span>(base_qty)), <span class="at">by =</span> date],</span>
+<span id="cb8-8"><a href="#cb8-8" aria-hidden="true" tabindex="-1"></a>  trades[,  .(<span class="at">volume =</span> <span class="fu">sum</span>(base_qty)), <span class="at">by =</span> date]</span>
+<span id="cb8-9"><a href="#cb8-9" aria-hidden="true" tabindex="-1"></a>)[, .(<span class="at">volume =</span> <span class="fu">sum</span>(volume)), by <span class="ot">=</span> date][<span class="fu">order</span>(date)]</span>
+<span id="cb8-10"><a href="#cb8-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-11"><a href="#cb8-11" aria-hidden="true" tabindex="-1"></a><span class="co"># Trailing mean, then lagged one day: strictly causal.</span></span>
+<span id="cb8-12"><a href="#cb8-12" aria-hidden="true" tabindex="-1"></a>daily_volume[, adv <span class="sc">:</span><span class="er">=</span> <span class="fu">shift</span>(<span class="fu">rollapply</span>(volume, ADV_WINDOW, mean,</span>
+<span id="cb8-13"><a href="#cb8-13" aria-hidden="true" tabindex="-1"></a>                                      <span class="at">fill =</span> <span class="cn">NA</span>, <span class="at">align =</span> <span class="st">"right"</span>), <span class="dv">1</span>)]</span>
+<span id="cb8-14"><a href="#cb8-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-15"><a href="#cb8-15" aria-hidden="true" tabindex="-1"></a><span class="fu">rm</span>(warmup)</span>
+<span id="cb8-16"><a href="#cb8-16" aria-hidden="true" tabindex="-1"></a><span class="fu">invisible</span>(<span class="fu">gc</span>())</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+</div>
+<div class="cell">
+<details class="code-fold">
+<summary>Plot daily volume against the trailing ADV</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb9"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="fu">ggplot</span>(daily_volume[date <span class="sc">&gt;=</span> <span class="fu">as.Date</span>(<span class="fu">paste0</span>(MONTH, <span class="st">"-01"</span>))], <span class="fu">aes</span>(<span class="at">x =</span> date)) <span class="sc">+</span></span>
+<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_col</span>(<span class="fu">aes</span>(<span class="at">y =</span> volume, <span class="at">fill =</span> <span class="st">"Daily volume"</span>), <span class="at">width =</span> <span class="fl">0.7</span>) <span class="sc">+</span></span>
+<span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_line</span>(<span class="fu">aes</span>(<span class="at">y =</span> adv, <span class="at">colour =</span> <span class="st">"Trailing ADV (lagged)"</span>), <span class="at">linewidth =</span> <span class="fl">0.8</span>, <span class="at">na.rm =</span> <span class="cn">TRUE</span>) <span class="sc">+</span></span>
+<span id="cb9-4"><a href="#cb9-4" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_fill_manual</span>(<span class="at">values   =</span> <span class="fu">c</span>(<span class="st">"Daily volume"</span> <span class="ot">=</span> col_muted)) <span class="sc">+</span></span>
+<span id="cb9-5"><a href="#cb9-5" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_colour_manual</span>(<span class="at">values =</span> <span class="fu">c</span>(<span class="st">"Trailing ADV (lagged)"</span> <span class="ot">=</span> col_data)) <span class="sc">+</span></span>
+<span id="cb9-6"><a href="#cb9-6" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_y_continuous</span>(<span class="at">labels =</span> <span class="fu">label_number</span>(<span class="at">scale =</span> <span class="fl">1e-6</span>, <span class="at">suffix =</span> <span class="st">"M"</span>)) <span class="sc">+</span></span>
+<span id="cb9-7"><a href="#cb9-7" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(</span>
+<span id="cb9-8"><a href="#cb9-8" aria-hidden="true" tabindex="-1"></a>    <span class="at">title    =</span> <span class="st">"Daily volume and the market volume rate"</span>,</span>
+<span id="cb9-9"><a href="#cb9-9" aria-hidden="true" tabindex="-1"></a>    <span class="at">subtitle =</span> <span class="fu">sprintf</span>(<span class="st">"%s, %s — %d-day trailing mean, lagged one day"</span>,</span>
+<span id="cb9-10"><a href="#cb9-10" aria-hidden="true" tabindex="-1"></a>                       SYMBOL, MONTH, ADV_WINDOW),</span>
+<span id="cb9-11"><a href="#cb9-11" aria-hidden="true" tabindex="-1"></a>    <span class="at">x =</span> <span class="cn">NULL</span>, <span class="at">y =</span> <span class="st">"Volume (SOL)"</span></span>
+<span id="cb9-12"><a href="#cb9-12" aria-hidden="true" tabindex="-1"></a>  )</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output-display">
+<div id="fig-adv" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-adv-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<img src="execution_cost_function_files/figure-html/fig-adv-1.png" class="img-fluid figure-img" width="768">
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-adv-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;3: Daily traded volume against the lagged trailing average that defines the market volume rate. The 5 August spike is the yen-carry unwind; the trailing average deliberately absorbs it slowly.
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
+</section>
+<section id="bar-construction" class="level2">
+<h2 class="anchored" data-anchor-id="bar-construction">Bar construction</h2>
+<p>For each bar and taker side,</p>
+<p><span class="math display">\[
+\rho = \frac{\sum_j q_j}{\mathrm{ADV} \times \Delta / 1440},
+\qquad
+\text{slippage}_{\text{bar}} = \frac{\sum_j q_j\, s_j}{\sum_j q_j},
+\]</span></p>
+<p>with <span class="math inline">\(q_j\)</span> and <span class="math inline">\(s_j\)</span> the size and slippage of order <span class="math inline">\(j\)</span> and <span class="math inline">\(\Delta\)</span> the bar length in minutes. The denominator of <span class="math inline">\(\rho\)</span> scales the daily volume rate down to the bar, so <span class="math inline">\(\rho = 1\)</span> means that side alone traded at the market’s own average rate.</p>
+<p>Each order’s slippage is measured against <em>its own</em> arrival quote, so the bar average is free of the price drift that accumulates over the bar. That drift is permanent impact, and belongs to the companion notebook rather than here. The distinction is not academic: measuring each bar’s VWAP against the bar’s <em>opening</em> mid instead confounds the two, and the resulting cost comes out <strong>negative in 44% of bars</strong> — the drift over the bar simply swamps the impact signal.</p>
+<div class="cell">
+<details class="code-fold">
+<summary>Bar construction and filtering functions</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb10"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a>make_bars <span class="ot">&lt;-</span> <span class="cf">function</span>(ord, minutes, <span class="at">drop_zero_orders =</span> <span class="cn">FALSE</span>) {</span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a>  d <span class="ot">&lt;-</span> <span class="cf">if</span> (drop_zero_orders) ord[slippage <span class="sc">!=</span> <span class="dv">0</span>] <span class="cf">else</span> ord</span>
+<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a>  d <span class="ot">&lt;-</span> <span class="fu">copy</span>(d)[, bin <span class="sc">:</span><span class="er">=</span> <span class="fu">floor_date</span>(ts, <span class="fu">sprintf</span>(<span class="st">"%d minutes"</span>, minutes))]</span>
+<span id="cb10-4"><a href="#cb10-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb10-5"><a href="#cb10-5" aria-hidden="true" tabindex="-1"></a>  <span class="co"># Arrival mid of each bar, and the rolling volatility used for filtering.</span></span>
+<span id="cb10-6"><a href="#cb10-6" aria-hidden="true" tabindex="-1"></a>  arrival <span class="ot">&lt;-</span> d[, .(<span class="at">bar_mid =</span> <span class="fu">first</span>(pre_mid)), by <span class="ot">=</span> bin][<span class="fu">order</span>(bin)]</span>
+<span id="cb10-7"><a href="#cb10-7" aria-hidden="true" tabindex="-1"></a>  arrival[, sd_mid <span class="sc">:</span><span class="er">=</span> <span class="fu">rollapply</span>(bar_mid, VOL_WINDOW, sd, <span class="at">fill =</span> <span class="cn">NA</span>, <span class="at">align =</span> <span class="st">"right"</span>)]</span>
+<span id="cb10-8"><a href="#cb10-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb10-9"><a href="#cb10-9" aria-hidden="true" tabindex="-1"></a>  b <span class="ot">&lt;-</span> d[, .(</span>
+<span id="cb10-10"><a href="#cb10-10" aria-hidden="true" tabindex="-1"></a>    <span class="at">date     =</span> <span class="fu">first</span>(date),</span>
+<span id="cb10-11"><a href="#cb10-11" aria-hidden="true" tabindex="-1"></a>    <span class="at">qty      =</span> <span class="fu">sum</span>(base_qty),</span>
+<span id="cb10-12"><a href="#cb10-12" aria-hidden="true" tabindex="-1"></a>    <span class="at">n_orders =</span> .N,</span>
+<span id="cb10-13"><a href="#cb10-13" aria-hidden="true" tabindex="-1"></a>    <span class="at">slip_vw  =</span> <span class="fu">sum</span>(base_qty <span class="sc">*</span> slippage) <span class="sc">/</span> <span class="fu">sum</span>(base_qty)</span>
+<span id="cb10-14"><a href="#cb10-14" aria-hidden="true" tabindex="-1"></a>  ), by <span class="ot">=</span> .(bin, taker_buy)]</span>
+<span id="cb10-15"><a href="#cb10-15" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb10-16"><a href="#cb10-16" aria-hidden="true" tabindex="-1"></a>  b <span class="ot">&lt;-</span> <span class="fu">merge</span>(<span class="fu">merge</span>(b, arrival, <span class="at">by =</span> <span class="st">"bin"</span>), daily_volume[, .(date, adv)], <span class="at">by =</span> <span class="st">"date"</span>)</span>
+<span id="cb10-17"><a href="#cb10-17" aria-hidden="true" tabindex="-1"></a>  b[, rho <span class="sc">:</span><span class="er">=</span> qty <span class="sc">/</span> (adv <span class="sc">*</span> (minutes <span class="sc">/</span> (<span class="dv">24</span> <span class="sc">*</span> <span class="dv">60</span>)))]</span>
+<span id="cb10-18"><a href="#cb10-18" aria-hidden="true" tabindex="-1"></a>  b[]</span>
+<span id="cb10-19"><a href="#cb10-19" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb10-20"><a href="#cb10-20" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb10-21"><a href="#cb10-21" aria-hidden="true" tabindex="-1"></a>apply_filters <span class="ot">&lt;-</span> <span class="cf">function</span>(b, <span class="at">q =</span> TRIM_Q) {</span>
+<span id="cb10-22"><a href="#cb10-22" aria-hidden="true" tabindex="-1"></a>  cut_sd  <span class="ot">&lt;-</span> <span class="fu">quantile</span>(b<span class="sc">$</span>sd_mid, q, <span class="at">na.rm =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb10-23"><a href="#cb10-23" aria-hidden="true" tabindex="-1"></a>  cut_qty <span class="ot">&lt;-</span> <span class="fu">quantile</span>(b<span class="sc">$</span>qty,    q, <span class="at">na.rm =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb10-24"><a href="#cb10-24" aria-hidden="true" tabindex="-1"></a>  b[<span class="sc">!</span><span class="fu">is.na</span>(sd_mid) <span class="sc">&amp;</span> sd_mid <span class="sc">&lt;=</span> cut_sd <span class="sc">&amp;</span> qty <span class="sc">&lt;=</span> cut_qty <span class="sc">&amp;</span> rho <span class="sc">&gt;</span> <span class="dv">0</span> <span class="sc">&amp;</span> slip_vw <span class="sc">&gt;</span> <span class="dv">0</span>]</span>
+<span id="cb10-25"><a href="#cb10-25" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb10-26"><a href="#cb10-26" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb10-27"><a href="#cb10-27" aria-hidden="true" tabindex="-1"></a>bars_all <span class="ot">&lt;-</span> <span class="fu">make_bars</span>(orders, BAR_MINUTES)</span>
+<span id="cb10-28"><a href="#cb10-28" aria-hidden="true" tabindex="-1"></a>bars     <span class="ot">&lt;-</span> <span class="fu">apply_filters</span>(bars_all)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+</div>
+</section>
+</section>
+<section id="data-cleaning" class="level1">
+<h1>Data cleaning</h1>
+<p>Three filters are applied, following the same logic as the permanent-impact notebook.</p>
+<p><strong>Top 5% of rolling volatility.</strong> When the mid-price is moving violently the book at the touch is thin and reprices between the quote snapshot and the fill. Measured slippage in those bars is dominated by that repricing rather than by the trader’s own consumption of liquidity, so with respect to <span class="math inline">\(g\)</span> it is noise. Volatility is the rolling standard deviation of the bar arrival mid over 15 bars.</p>
+<p><strong>Top 5% of bar volume.</strong> The heaviest bars are liquidation cascades and news reactions. They are genuine observations, but they sit so far out in <span class="math inline">\(\rho\)</span> that they would dominate the fit, and their cost dynamics are not the ones a normal execution schedule faces.</p>
+<p><strong>Non-positive bar slippage.</strong> A bar whose volume-weighted slippage is zero or negative cannot enter a log-log regression. At bar level this is rare, because averaging washes out the individual measurement artifacts, so the truncation bias is small. That is emphatically not true at order level, where the same rule would discard 73% of the sample.</p>
+<div class="cell">
+<details class="code-fold">
+<summary>Plot the filter thresholds</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb11"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a>cut_sd  <span class="ot">&lt;-</span> <span class="fu">quantile</span>(bars_all<span class="sc">$</span>sd_mid, TRIM_Q, <span class="at">na.rm =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a>cut_qty <span class="ot">&lt;-</span> <span class="fu">quantile</span>(bars_all<span class="sc">$</span>qty,    TRIM_Q, <span class="at">na.rm =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb11-3"><a href="#cb11-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-4"><a href="#cb11-4" aria-hidden="true" tabindex="-1"></a>metric_levels <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">"Rolling volatility of the mid (USD)"</span>, <span class="st">"Bar volume (SOL)"</span>)</span>
+<span id="cb11-5"><a href="#cb11-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-6"><a href="#cb11-6" aria-hidden="true" tabindex="-1"></a>filt_long <span class="ot">&lt;-</span> <span class="fu">rbind</span>(</span>
+<span id="cb11-7"><a href="#cb11-7" aria-hidden="true" tabindex="-1"></a>  bars_all[<span class="sc">!</span><span class="fu">is.na</span>(sd_mid) <span class="sc">&amp;</span> sd_mid <span class="sc">&gt;</span> <span class="dv">0</span>, .(<span class="at">value =</span> sd_mid, <span class="at">metric =</span> metric_levels[<span class="dv">1</span>])],</span>
+<span id="cb11-8"><a href="#cb11-8" aria-hidden="true" tabindex="-1"></a>  bars_all[qty <span class="sc">&gt;</span> <span class="dv">0</span>,                     .(<span class="at">value =</span> qty,    <span class="at">metric =</span> metric_levels[<span class="dv">2</span>])]</span>
+<span id="cb11-9"><a href="#cb11-9" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb11-10"><a href="#cb11-10" aria-hidden="true" tabindex="-1"></a>filt_long[, metric <span class="sc">:</span><span class="er">=</span> <span class="fu">factor</span>(metric, <span class="at">levels =</span> metric_levels)]</span>
+<span id="cb11-11"><a href="#cb11-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-12"><a href="#cb11-12" aria-hidden="true" tabindex="-1"></a>cuts <span class="ot">&lt;-</span> <span class="fu">data.table</span>(<span class="at">metric =</span> <span class="fu">factor</span>(metric_levels, <span class="at">levels =</span> metric_levels),</span>
+<span id="cb11-13"><a href="#cb11-13" aria-hidden="true" tabindex="-1"></a>                   <span class="at">cut    =</span> <span class="fu">c</span>(cut_sd, cut_qty))</span>
+<span id="cb11-14"><a href="#cb11-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-15"><a href="#cb11-15" aria-hidden="true" tabindex="-1"></a><span class="fu">ggplot</span>(filt_long, <span class="fu">aes</span>(<span class="at">x =</span> value)) <span class="sc">+</span></span>
+<span id="cb11-16"><a href="#cb11-16" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_histogram</span>(<span class="at">bins =</span> <span class="dv">70</span>, <span class="at">fill =</span> col_data, <span class="at">alpha =</span> <span class="fl">0.85</span>) <span class="sc">+</span></span>
+<span id="cb11-17"><a href="#cb11-17" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_vline</span>(<span class="at">data =</span> cuts, <span class="fu">aes</span>(<span class="at">xintercept =</span> cut),</span>
+<span id="cb11-18"><a href="#cb11-18" aria-hidden="true" tabindex="-1"></a>             <span class="at">colour =</span> col_model, <span class="at">linetype =</span> <span class="st">"dashed"</span>, <span class="at">linewidth =</span> <span class="fl">0.7</span>) <span class="sc">+</span></span>
+<span id="cb11-19"><a href="#cb11-19" aria-hidden="true" tabindex="-1"></a>  <span class="fu">facet_wrap</span>(<span class="sc">~</span> metric, <span class="at">scales =</span> <span class="st">"free"</span>) <span class="sc">+</span></span>
+<span id="cb11-20"><a href="#cb11-20" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_x_log10</span>(<span class="at">labels =</span> <span class="fu">label_number</span>(<span class="at">drop0trailing =</span> <span class="cn">TRUE</span>, <span class="at">big.mark =</span> <span class="st">","</span>)) <span class="sc">+</span></span>
+<span id="cb11-21"><a href="#cb11-21" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_y_continuous</span>(<span class="at">labels =</span> comma) <span class="sc">+</span></span>
+<span id="cb11-22"><a href="#cb11-22" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(</span>
+<span id="cb11-23"><a href="#cb11-23" aria-hidden="true" tabindex="-1"></a>    <span class="at">title    =</span> <span class="fu">sprintf</span>(<span class="st">"Trimming the top %.0f%% of volatility and of volume"</span>,</span>
+<span id="cb11-24"><a href="#cb11-24" aria-hidden="true" tabindex="-1"></a>                       <span class="dv">100</span> <span class="sc">*</span> (<span class="dv">1</span> <span class="sc">-</span> TRIM_Q)),</span>
+<span id="cb11-25"><a href="#cb11-25" aria-hidden="true" tabindex="-1"></a>    <span class="at">subtitle =</span> <span class="fu">sprintf</span>(<span class="st">"%d-minute bars, log x-axis. Dashed line = %.0fth percentile"</span>,</span>
+<span id="cb11-26"><a href="#cb11-26" aria-hidden="true" tabindex="-1"></a>                       BAR_MINUTES, <span class="dv">100</span> <span class="sc">*</span> TRIM_Q),</span>
+<span id="cb11-27"><a href="#cb11-27" aria-hidden="true" tabindex="-1"></a>    <span class="at">x =</span> <span class="cn">NULL</span>, <span class="at">y =</span> <span class="st">"Bars"</span></span>
+<span id="cb11-28"><a href="#cb11-28" aria-hidden="true" tabindex="-1"></a>  )</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output-display">
+<div id="fig-filters" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-filters-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<img src="execution_cost_function_files/figure-html/fig-filters-1.png" class="img-fluid figure-img" width="768">
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-filters-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;4: The two trimming thresholds. Bars to the right of each dashed line are dropped.
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<div class="cell">
+<details class="code-fold">
+<summary>Cleaning waterfall</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb12"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a>n_drop_sd   <span class="ot">&lt;-</span> bars_all[<span class="fu">is.na</span>(sd_mid) <span class="sc">|</span> sd_mid <span class="sc">&gt;</span> cut_sd, .N]</span>
+<span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a>n_drop_qty  <span class="ot">&lt;-</span> bars_all[<span class="sc">!</span><span class="fu">is.na</span>(sd_mid) <span class="sc">&amp;</span> sd_mid <span class="sc">&lt;=</span> cut_sd <span class="sc">&amp;</span> qty <span class="sc">&gt;</span> cut_qty, .N]</span>
+<span id="cb12-3"><a href="#cb12-3" aria-hidden="true" tabindex="-1"></a>n_drop_slip <span class="ot">&lt;-</span> bars_all[<span class="sc">!</span><span class="fu">is.na</span>(sd_mid) <span class="sc">&amp;</span> sd_mid <span class="sc">&lt;=</span> cut_sd <span class="sc">&amp;</span> qty <span class="sc">&lt;=</span> cut_qty <span class="sc">&amp;</span> slip_vw <span class="sc">&lt;=</span> <span class="dv">0</span>, .N]</span>
+<span id="cb12-4"><a href="#cb12-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb12-5"><a href="#cb12-5" aria-hidden="true" tabindex="-1"></a>knitr<span class="sc">::</span><span class="fu">kable</span>(</span>
+<span id="cb12-6"><a href="#cb12-6" aria-hidden="true" tabindex="-1"></a>  <span class="fu">data.table</span>(</span>
+<span id="cb12-7"><a href="#cb12-7" aria-hidden="true" tabindex="-1"></a>    <span class="at">Step =</span> <span class="fu">c</span>(<span class="st">"Bars constructed"</span>,</span>
+<span id="cb12-8"><a href="#cb12-8" aria-hidden="true" tabindex="-1"></a>             <span class="fu">sprintf</span>(<span class="st">"Drop top %.0f%% rolling volatility"</span>, <span class="dv">100</span> <span class="sc">*</span> (<span class="dv">1</span> <span class="sc">-</span> TRIM_Q)),</span>
+<span id="cb12-9"><a href="#cb12-9" aria-hidden="true" tabindex="-1"></a>             <span class="fu">sprintf</span>(<span class="st">"Drop top %.0f%% bar volume"</span>,         <span class="dv">100</span> <span class="sc">*</span> (<span class="dv">1</span> <span class="sc">-</span> TRIM_Q)),</span>
+<span id="cb12-10"><a href="#cb12-10" aria-hidden="true" tabindex="-1"></a>             <span class="st">"Drop non-positive slippage"</span>,</span>
+<span id="cb12-11"><a href="#cb12-11" aria-hidden="true" tabindex="-1"></a>             <span class="st">"Retained"</span>),</span>
+<span id="cb12-12"><a href="#cb12-12" aria-hidden="true" tabindex="-1"></a>    <span class="at">Bars =</span> <span class="fu">c</span>(<span class="fu">nrow</span>(bars_all), <span class="sc">-</span>n_drop_sd, <span class="sc">-</span>n_drop_qty, <span class="sc">-</span>n_drop_slip, <span class="fu">nrow</span>(bars))</span>
+<span id="cb12-13"><a href="#cb12-13" aria-hidden="true" tabindex="-1"></a>  ),</span>
+<span id="cb12-14"><a href="#cb12-14" aria-hidden="true" tabindex="-1"></a>  <span class="at">format.args =</span> <span class="fu">list</span>(<span class="at">big.mark =</span> <span class="st">","</span>),</span>
+<span id="cb12-15"><a href="#cb12-15" aria-hidden="true" tabindex="-1"></a>  <span class="at">caption =</span> <span class="st">"Effect of each cleaning step on the bar sample."</span></span>
+<span id="cb12-16"><a href="#cb12-16" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output-display">
+<table class="caption-top table table-sm table-striped small">
+<caption>Effect of each cleaning step on the bar sample.</caption>
+<thead>
+<tr class="header">
+<th style="text-align: left;">Step</th>
+<th style="text-align: right;">Bars</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;">Bars constructed</td>
+<td style="text-align: right;">17,856</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Drop top 5% rolling volatility</td>
+<td style="text-align: right;">-920</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">Drop top 5% bar volume</td>
+<td style="text-align: right;">-459</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Drop non-positive slippage</td>
+<td style="text-align: right;">-30</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">Retained</td>
+<td style="text-align: right;">16,447</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<p>92.1% of bars survive. The retained sample spans participation rates from 0.003 to 3.56, with a median of 0.24 — a range that covers the schedules an execution algorithm would actually run.</p>
+</section>
+<section id="estimating-eta-and-phi" class="level1">
+<h1>Estimating <span class="math inline">\(\eta\)</span> and <span class="math inline">\(\phi\)</span></h1>
+<p>Taking logs of <span class="math inline">\(g(\rho) = \eta \rho^{\phi}\)</span> linearises the power law, so the slope of <span class="math inline">\(\log(\text{slippage})\)</span> on <span class="math inline">\(\log \rho\)</span> estimates <span class="math inline">\(\phi\)</span> and the intercept estimates <span class="math inline">\(\log \eta\)</span>.</p>
+<div class="cell">
+<details class="code-fold">
+<summary>Fit the power law</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb13"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a>fit <span class="ot">&lt;-</span> <span class="fu">lm</span>(<span class="fu">log</span>(slip_vw) <span class="sc">~</span> <span class="fu">log</span>(rho), <span class="at">data =</span> bars)</span>
+<span id="cb13-2"><a href="#cb13-2" aria-hidden="true" tabindex="-1"></a><span class="fu">summary</span>(fit)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>
+Call:
+lm(formula = log(slip_vw) ~ log(rho), data = bars)
+
+Residuals:
+     Min       1Q   Median       3Q      Max 
+-28.4625  -0.5383   0.1182   0.6966   4.1873 
+
+Coefficients:
+            Estimate Std. Error t value Pr(&gt;|t|)    
+(Intercept) -4.43583    0.01870 -237.23   &lt;2e-16 ***
+log(rho)     0.76353    0.01081   70.62   &lt;2e-16 ***
+---
+Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
+
+Residual standard error: 1.326 on 16445 degrees of freedom
+Multiple R-squared:  0.2327,    Adjusted R-squared:  0.2326 
+F-statistic:  4987 on 1 and 16445 DF,  p-value: &lt; 2.2e-16</code></pre>
+</div>
+<details class="code-fold">
+<summary>Fit the power law</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb15"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a>eta <span class="ot">&lt;-</span> <span class="fu">exp</span>(<span class="fu">coef</span>(fit)[[<span class="dv">1</span>]])</span>
+<span id="cb15-2"><a href="#cb15-2" aria-hidden="true" tabindex="-1"></a>phi <span class="ot">&lt;-</span> <span class="fu">coef</span>(fit)[[<span class="dv">2</span>]]</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+</div>
+<div class="cell">
+<details class="code-fold">
+<summary>Plot slippage against participation rate</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb16"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a><span class="co"># A few dozen near-zero bars stretch the axis over five decades and squash the</span></span>
+<span id="cb16-2"><a href="#cb16-2" aria-hidden="true" tabindex="-1"></a><span class="co"># bulk into a sliver, so the view is zoomed to the central 99.8%. This is a zoom</span></span>
+<span id="cb16-3"><a href="#cb16-3" aria-hidden="true" tabindex="-1"></a><span class="co"># only -- coord_cartesian clips the view, it does not drop rows, and the fit</span></span>
+<span id="cb16-4"><a href="#cb16-4" aria-hidden="true" tabindex="-1"></a><span class="co"># above was estimated on every retained bar.</span></span>
+<span id="cb16-5"><a href="#cb16-5" aria-hidden="true" tabindex="-1"></a>y_zoom  <span class="ot">&lt;-</span> <span class="fu">quantile</span>(bars<span class="sc">$</span>slip_vw, <span class="fu">c</span>(<span class="fl">0.001</span>, <span class="fl">0.999</span>))</span>
+<span id="cb16-6"><a href="#cb16-6" aria-hidden="true" tabindex="-1"></a>n_off   <span class="ot">&lt;-</span> bars[slip_vw <span class="sc">&lt;</span> y_zoom[<span class="dv">1</span>] <span class="sc">|</span> slip_vw <span class="sc">&gt;</span> y_zoom[<span class="dv">2</span>], .N]</span>
+<span id="cb16-7"><a href="#cb16-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-8"><a href="#cb16-8" aria-hidden="true" tabindex="-1"></a><span class="fu">ggplot</span>(bars, <span class="fu">aes</span>(<span class="at">x =</span> rho, <span class="at">y =</span> slip_vw)) <span class="sc">+</span></span>
+<span id="cb16-9"><a href="#cb16-9" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_point</span>(<span class="at">alpha =</span> <span class="fl">0.12</span>, <span class="at">size =</span> <span class="fl">0.7</span>, <span class="at">colour =</span> col_data) <span class="sc">+</span></span>
+<span id="cb16-10"><a href="#cb16-10" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_abline</span>(<span class="at">intercept =</span> <span class="fu">log10</span>(eta), <span class="at">slope =</span> phi,</span>
+<span id="cb16-11"><a href="#cb16-11" aria-hidden="true" tabindex="-1"></a>              <span class="at">colour =</span> col_model, <span class="at">linewidth =</span> <span class="fl">0.9</span>) <span class="sc">+</span></span>
+<span id="cb16-12"><a href="#cb16-12" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_x_log10</span>(<span class="at">labels =</span> <span class="fu">label_number</span>(<span class="at">accuracy =</span> <span class="fl">0.01</span>)) <span class="sc">+</span></span>
+<span id="cb16-13"><a href="#cb16-13" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_y_log10</span>(<span class="at">labels =</span> <span class="fu">label_number</span>(<span class="at">drop0trailing =</span> <span class="cn">TRUE</span>)) <span class="sc">+</span></span>
+<span id="cb16-14"><a href="#cb16-14" aria-hidden="true" tabindex="-1"></a>  <span class="fu">annotation_logticks</span>(<span class="at">sides =</span> <span class="st">"bl"</span>, <span class="at">colour =</span> <span class="st">"grey70"</span>, <span class="at">linewidth =</span> <span class="fl">0.25</span>) <span class="sc">+</span></span>
+<span id="cb16-15"><a href="#cb16-15" aria-hidden="true" tabindex="-1"></a>  <span class="fu">coord_cartesian</span>(<span class="at">ylim =</span> y_zoom) <span class="sc">+</span></span>
+<span id="cb16-16"><a href="#cb16-16" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(</span>
+<span id="cb16-17"><a href="#cb16-17" aria-hidden="true" tabindex="-1"></a>    <span class="at">title    =</span> <span class="st">"Slippage against participation rate"</span>,</span>
+<span id="cb16-18"><a href="#cb16-18" aria-hidden="true" tabindex="-1"></a>    <span class="at">subtitle =</span> <span class="fu">sprintf</span>(<span class="st">"%d-minute bars by taker side, n = %s; fitted exponent = %.3f"</span>,</span>
+<span id="cb16-19"><a href="#cb16-19" aria-hidden="true" tabindex="-1"></a>                       BAR_MINUTES, <span class="fu">comma</span>(<span class="fu">nrow</span>(bars)), phi),</span>
+<span id="cb16-20"><a href="#cb16-20" aria-hidden="true" tabindex="-1"></a>    <span class="at">x =</span> <span class="fu">expression</span>(rho <span class="sc">==</span> v[t]<span class="sc">/</span>V[t]),</span>
+<span id="cb16-21"><a href="#cb16-21" aria-hidden="true" tabindex="-1"></a>    <span class="at">y =</span> <span class="st">"Volume-weighted slippage (USD per SOL)"</span>,</span>
+<span id="cb16-22"><a href="#cb16-22" aria-hidden="true" tabindex="-1"></a>    <span class="at">caption =</span> <span class="fu">sprintf</span>(<span class="fu">paste</span>(<span class="st">"Orange line: the fitted power law. View zoomed to the central 99.8%% of bars;"</span>,</span>
+<span id="cb16-23"><a href="#cb16-23" aria-hidden="true" tabindex="-1"></a>                            <span class="st">"%d bars fall outside it and are included in the fit."</span>), n_off)</span>
+<span id="cb16-24"><a href="#cb16-24" aria-hidden="true" tabindex="-1"></a>  )</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output-display">
+<div id="fig-scatter" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-scatter-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<img src="execution_cost_function_files/figure-html/fig-scatter-1.png" class="img-fluid figure-img" width="768">
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-scatter-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;5: Bar-level slippage against participation rate on log-log axes. A pure power law is a straight line in these coordinates.
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<p>The scatter is wide, as it must be — a single bar’s realised cost is one draw from a heavy-tailed distribution. The systematic relationship is far clearer in the <strong>conditional mean</strong>, obtained by grouping bars into 20 equally populated participation-rate bins and averaging within each. Averaging is the right operation: it is the conditional mean of <span class="math inline">\(g\)</span> that the model describes, and it cancels the symmetric measurement noise that the log transform otherwise distorts.</p>
+<div class="cell">
+<details class="code-fold">
+<summary>Binned conditional mean</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb17"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a>bars[, rho_bin <span class="sc">:</span><span class="er">=</span> <span class="fu">cut</span>(rho,</span>
+<span id="cb17-2"><a href="#cb17-2" aria-hidden="true" tabindex="-1"></a>                      <span class="at">breaks =</span> <span class="fu">unique</span>(<span class="fu">quantile</span>(rho, <span class="fu">seq</span>(<span class="dv">0</span>, <span class="dv">1</span>, <span class="at">length.out =</span> N_BINS <span class="sc">+</span> <span class="dv">1</span>))),</span>
+<span id="cb17-3"><a href="#cb17-3" aria-hidden="true" tabindex="-1"></a>                      <span class="at">include.lowest =</span> <span class="cn">TRUE</span>)]</span>
+<span id="cb17-4"><a href="#cb17-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb17-5"><a href="#cb17-5" aria-hidden="true" tabindex="-1"></a>binned <span class="ot">&lt;-</span> bars[<span class="sc">!</span><span class="fu">is.na</span>(rho_bin), .(</span>
+<span id="cb17-6"><a href="#cb17-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">mean_slippage   =</span> <span class="fu">mean</span>(slip_vw),</span>
+<span id="cb17-7"><a href="#cb17-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">median_slippage =</span> <span class="fu">median</span>(slip_vw),</span>
+<span id="cb17-8"><a href="#cb17-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">rho_med         =</span> <span class="fu">median</span>(rho),</span>
+<span id="cb17-9"><a href="#cb17-9" aria-hidden="true" tabindex="-1"></a>  <span class="at">n               =</span> .N</span>
+<span id="cb17-10"><a href="#cb17-10" aria-hidden="true" tabindex="-1"></a>), by <span class="ot">=</span> rho_bin][<span class="fu">order</span>(rho_med)]</span>
+<span id="cb17-11"><a href="#cb17-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb17-12"><a href="#cb17-12" aria-hidden="true" tabindex="-1"></a>fit_binned <span class="ot">&lt;-</span> <span class="fu">lm</span>(<span class="fu">log</span>(mean_slippage) <span class="sc">~</span> <span class="fu">log</span>(rho_med), <span class="at">data =</span> binned, <span class="at">weights =</span> binned<span class="sc">$</span>n)</span>
+<span id="cb17-13"><a href="#cb17-13" aria-hidden="true" tabindex="-1"></a>eta_binned <span class="ot">&lt;-</span> <span class="fu">exp</span>(<span class="fu">coef</span>(fit_binned)[[<span class="dv">1</span>]])</span>
+<span id="cb17-14"><a href="#cb17-14" aria-hidden="true" tabindex="-1"></a>phi_binned <span class="ot">&lt;-</span> <span class="fu">coef</span>(fit_binned)[[<span class="dv">2</span>]]</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+</div>
+<div class="cell">
+<details class="code-fold">
+<summary>Plot the binned conditional mean</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb18"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a>grid <span class="ot">&lt;-</span> <span class="fu">data.table</span>(<span class="at">rho =</span> <span class="dv">10</span><span class="sc">^</span><span class="fu">seq</span>(<span class="fu">log10</span>(<span class="fu">min</span>(binned<span class="sc">$</span>rho_med)),</span>
+<span id="cb18-2"><a href="#cb18-2" aria-hidden="true" tabindex="-1"></a>                                <span class="fu">log10</span>(<span class="fu">max</span>(binned<span class="sc">$</span>rho_med)), <span class="at">length.out =</span> <span class="dv">200</span>))</span>
+<span id="cb18-3"><a href="#cb18-3" aria-hidden="true" tabindex="-1"></a>grid[, pred <span class="sc">:</span><span class="er">=</span> eta_binned <span class="sc">*</span> rho<span class="sc">^</span>phi_binned]</span>
+<span id="cb18-4"><a href="#cb18-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb18-5"><a href="#cb18-5" aria-hidden="true" tabindex="-1"></a><span class="fu">ggplot</span>() <span class="sc">+</span></span>
+<span id="cb18-6"><a href="#cb18-6" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_line</span>(<span class="at">data =</span> grid, <span class="fu">aes</span>(<span class="at">x =</span> rho, <span class="at">y =</span> pred, <span class="at">colour =</span> <span class="st">"Fitted power law"</span>),</span>
+<span id="cb18-7"><a href="#cb18-7" aria-hidden="true" tabindex="-1"></a>            <span class="at">linewidth =</span> <span class="fl">0.9</span>, <span class="at">linetype =</span> <span class="st">"dashed"</span>) <span class="sc">+</span></span>
+<span id="cb18-8"><a href="#cb18-8" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_point</span>(<span class="at">data =</span> binned, <span class="fu">aes</span>(<span class="at">x =</span> rho_med, <span class="at">y =</span> mean_slippage, <span class="at">colour =</span> <span class="st">"Conditional mean"</span>),</span>
+<span id="cb18-9"><a href="#cb18-9" aria-hidden="true" tabindex="-1"></a>             <span class="at">size =</span> <span class="fl">2.2</span>) <span class="sc">+</span></span>
+<span id="cb18-10"><a href="#cb18-10" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_colour_manual</span>(<span class="at">values =</span> <span class="fu">c</span>(<span class="st">"Conditional mean"</span> <span class="ot">=</span> col_data,</span>
+<span id="cb18-11"><a href="#cb18-11" aria-hidden="true" tabindex="-1"></a>                                 <span class="st">"Fitted power law"</span> <span class="ot">=</span> col_model)) <span class="sc">+</span></span>
+<span id="cb18-12"><a href="#cb18-12" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_x_log10</span>(<span class="at">labels =</span> <span class="fu">label_number</span>(<span class="at">accuracy =</span> <span class="fl">0.01</span>)) <span class="sc">+</span></span>
+<span id="cb18-13"><a href="#cb18-13" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_y_log10</span>(<span class="at">labels =</span> <span class="fu">label_number</span>(<span class="at">accuracy =</span> <span class="fl">0.0001</span>)) <span class="sc">+</span></span>
+<span id="cb18-14"><a href="#cb18-14" aria-hidden="true" tabindex="-1"></a>  <span class="fu">annotation_logticks</span>(<span class="at">sides =</span> <span class="st">"bl"</span>, <span class="at">colour =</span> <span class="st">"grey70"</span>, <span class="at">linewidth =</span> <span class="fl">0.25</span>) <span class="sc">+</span></span>
+<span id="cb18-15"><a href="#cb18-15" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(</span>
+<span id="cb18-16"><a href="#cb18-16" aria-hidden="true" tabindex="-1"></a>    <span class="at">title    =</span> <span class="st">"The conditional mean is a clean power law"</span>,</span>
+<span id="cb18-17"><a href="#cb18-17" aria-hidden="true" tabindex="-1"></a>    <span class="at">subtitle =</span> <span class="fu">sprintf</span>(<span class="st">"%d bins of %s bars each; exponent = %.3f, R-squared = %.3f"</span>,</span>
+<span id="cb18-18"><a href="#cb18-18" aria-hidden="true" tabindex="-1"></a>                       <span class="fu">nrow</span>(binned), <span class="fu">comma</span>(<span class="fu">round</span>(<span class="fu">mean</span>(binned<span class="sc">$</span>n))),</span>
+<span id="cb18-19"><a href="#cb18-19" aria-hidden="true" tabindex="-1"></a>                       phi_binned, <span class="fu">summary</span>(fit_binned)<span class="sc">$</span>r.squared),</span>
+<span id="cb18-20"><a href="#cb18-20" aria-hidden="true" tabindex="-1"></a>    <span class="at">x =</span> <span class="fu">expression</span>(rho<span class="sc">~</span><span class="st">"(bin median)"</span>),</span>
+<span id="cb18-21"><a href="#cb18-21" aria-hidden="true" tabindex="-1"></a>    <span class="at">y =</span> <span class="st">"Mean slippage (USD per SOL)"</span></span>
+<span id="cb18-22"><a href="#cb18-22" aria-hidden="true" tabindex="-1"></a>  )</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output-display">
+<div id="fig-binned" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-binned-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<img src="execution_cost_function_files/figure-html/fig-binned-1.png" class="img-fluid figure-img" width="768">
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-binned-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;6: Conditional mean slippage by participation-rate bin, against the fitted power law. Each bin holds an equal number of bars.
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<p>The binned fit reaches <span class="math inline">\(R^2 =\)</span> 0.985, against 0.233 for the unbinned regression. The gap is not a contradiction: the power law describes the conditional mean well, while individual bars scatter widely around it. Both estimates of <span class="math inline">\(\phi\)</span> are reported.</p>
+</section>
+<section id="robustness" class="level1">
+<h1>Robustness</h1>
+<div class="cell">
+<details class="code-fold">
+<summary>Robustness checks</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb19"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb19-1"><a href="#cb19-1" aria-hidden="true" tabindex="-1"></a>summarise_fit <span class="ot">&lt;-</span> <span class="cf">function</span>(f, label) {</span>
+<span id="cb19-2"><a href="#cb19-2" aria-hidden="true" tabindex="-1"></a>  m <span class="ot">&lt;-</span> <span class="fu">lm</span>(<span class="fu">log</span>(slip_vw) <span class="sc">~</span> <span class="fu">log</span>(rho), f)</span>
+<span id="cb19-3"><a href="#cb19-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">data.table</span>(<span class="at">Specification =</span> label, <span class="at">n =</span> <span class="fu">nrow</span>(f),</span>
+<span id="cb19-4"><a href="#cb19-4" aria-hidden="true" tabindex="-1"></a>             <span class="at">eta =</span> <span class="fu">exp</span>(<span class="fu">coef</span>(m)[[<span class="dv">1</span>]]), <span class="at">phi =</span> <span class="fu">coef</span>(m)[[<span class="dv">2</span>]],</span>
+<span id="cb19-5"><a href="#cb19-5" aria-hidden="true" tabindex="-1"></a>             <span class="at">R2 =</span> <span class="fu">summary</span>(m)<span class="sc">$</span>r.squared)</span>
+<span id="cb19-6"><a href="#cb19-6" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb19-7"><a href="#cb19-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb19-8"><a href="#cb19-8" aria-hidden="true" tabindex="-1"></a>rob <span class="ot">&lt;-</span> <span class="fu">rbindlist</span>(<span class="fu">list</span>(</span>
+<span id="cb19-9"><a href="#cb19-9" aria-hidden="true" tabindex="-1"></a>  <span class="co"># Sampling horizon</span></span>
+<span id="cb19-10"><a href="#cb19-10" aria-hidden="true" tabindex="-1"></a>  <span class="fu">rbindlist</span>(<span class="fu">lapply</span>(<span class="fu">c</span>(<span class="dv">1</span>, <span class="dv">5</span>, <span class="dv">15</span>, <span class="dv">30</span>, <span class="dv">60</span>), <span class="cf">function</span>(mm)</span>
+<span id="cb19-11"><a href="#cb19-11" aria-hidden="true" tabindex="-1"></a>    <span class="fu">summarise_fit</span>(<span class="fu">apply_filters</span>(<span class="fu">make_bars</span>(orders, mm)), <span class="fu">sprintf</span>(<span class="st">"Bar length: %d min"</span>, mm)))),</span>
+<span id="cb19-12"><a href="#cb19-12" aria-hidden="true" tabindex="-1"></a>  <span class="co"># Strength of the trimming</span></span>
+<span id="cb19-13"><a href="#cb19-13" aria-hidden="true" tabindex="-1"></a>  <span class="fu">rbindlist</span>(<span class="fu">lapply</span>(<span class="fu">c</span>(<span class="dv">1</span>, <span class="fl">0.99</span>, <span class="fl">0.95</span>, <span class="fl">0.90</span>), <span class="cf">function</span>(q)</span>
+<span id="cb19-14"><a href="#cb19-14" aria-hidden="true" tabindex="-1"></a>    <span class="fu">summarise_fit</span>(<span class="fu">apply_filters</span>(bars_all, q), <span class="fu">sprintf</span>(<span class="st">"Trim: keep %.0f%%"</span>, <span class="dv">100</span> <span class="sc">*</span> q)))),</span>
+<span id="cb19-15"><a href="#cb19-15" aria-hidden="true" tabindex="-1"></a>  <span class="co"># Zero-slippage orders removed before aggregating</span></span>
+<span id="cb19-16"><a href="#cb19-16" aria-hidden="true" tabindex="-1"></a>  <span class="fu">summarise_fit</span>(<span class="fu">apply_filters</span>(<span class="fu">make_bars</span>(orders, BAR_MINUTES, <span class="at">drop_zero_orders =</span> <span class="cn">TRUE</span>)),</span>
+<span id="cb19-17"><a href="#cb19-17" aria-hidden="true" tabindex="-1"></a>                <span class="st">"Zero-slippage orders dropped first"</span>),</span>
+<span id="cb19-18"><a href="#cb19-18" aria-hidden="true" tabindex="-1"></a>  <span class="co"># Subsamples</span></span>
+<span id="cb19-19"><a href="#cb19-19" aria-hidden="true" tabindex="-1"></a>  <span class="fu">rbindlist</span>(<span class="fu">lapply</span>(<span class="fu">sort</span>(<span class="fu">unique</span>(<span class="fu">isoweek</span>(bars<span class="sc">$</span>bin))), <span class="cf">function</span>(w)</span>
+<span id="cb19-20"><a href="#cb19-20" aria-hidden="true" tabindex="-1"></a>    <span class="fu">summarise_fit</span>(bars[<span class="fu">isoweek</span>(bin) <span class="sc">==</span> w], <span class="fu">sprintf</span>(<span class="st">"ISO week %d"</span>, w)))),</span>
+<span id="cb19-21"><a href="#cb19-21" aria-hidden="true" tabindex="-1"></a>  <span class="fu">summarise_fit</span>(bars[taker_buy <span class="sc">==</span> <span class="cn">TRUE</span>],  <span class="st">"Taker buys only"</span>),</span>
+<span id="cb19-22"><a href="#cb19-22" aria-hidden="true" tabindex="-1"></a>  <span class="fu">summarise_fit</span>(bars[taker_buy <span class="sc">==</span> <span class="cn">FALSE</span>], <span class="st">"Taker sells only"</span>)</span>
+<span id="cb19-23"><a href="#cb19-23" aria-hidden="true" tabindex="-1"></a>))</span>
+<span id="cb19-24"><a href="#cb19-24" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb19-25"><a href="#cb19-25" aria-hidden="true" tabindex="-1"></a>knitr<span class="sc">::</span><span class="fu">kable</span>(rob, <span class="at">digits =</span> <span class="fu">c</span>(<span class="dv">0</span>, <span class="dv">0</span>, <span class="dv">5</span>, <span class="dv">3</span>, <span class="dv">3</span>),</span>
+<span id="cb19-26"><a href="#cb19-26" aria-hidden="true" tabindex="-1"></a>             <span class="at">format.args =</span> <span class="fu">list</span>(<span class="at">big.mark =</span> <span class="st">","</span>),</span>
+<span id="cb19-27"><a href="#cb19-27" aria-hidden="true" tabindex="-1"></a>             <span class="at">col.names =</span> <span class="fu">c</span>(<span class="st">"Specification"</span>, <span class="st">"n"</span>, <span class="st">"$</span><span class="sc">\\</span><span class="st">hat</span><span class="sc">\\</span><span class="st">eta$"</span>, <span class="st">"$</span><span class="sc">\\</span><span class="st">hat</span><span class="sc">\\</span><span class="st">phi$"</span>, <span class="st">"$R^2$"</span>),</span>
+<span id="cb19-28"><a href="#cb19-28" aria-hidden="true" tabindex="-1"></a>             <span class="at">caption =</span> <span class="st">"Sensitivity of the estimates to sampling and cleaning choices."</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output-display">
+<table class="caption-top table table-sm table-striped small">
+<caption>Sensitivity of the estimates to sampling and cleaning choices.</caption>
+<colgroup>
+<col style="width: 50%">
+<col style="width: 10%">
+<col style="width: 15%">
+<col style="width: 15%">
+<col style="width: 8%">
+</colgroup>
+<thead>
+<tr class="header">
+<th style="text-align: left;">Specification</th>
+<th style="text-align: right;">n</th>
+<th style="text-align: right;"><span class="math inline">\(\hat\eta\)</span></th>
+<th style="text-align: right;"><span class="math inline">\(\hat\phi\)</span></th>
+<th style="text-align: right;"><span class="math inline">\(R^2\)</span></th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;">Bar length: 1 min</td>
+<td style="text-align: right;">73,584</td>
+<td style="text-align: right;">0.01009</td>
+<td style="text-align: right;">1.529</td>
+<td style="text-align: right;">0.136</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Bar length: 5 min</td>
+<td style="text-align: right;">16,447</td>
+<td style="text-align: right;">0.01185</td>
+<td style="text-align: right;">0.764</td>
+<td style="text-align: right;">0.233</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">Bar length: 15 min</td>
+<td style="text-align: right;">5,447</td>
+<td style="text-align: right;">0.01351</td>
+<td style="text-align: right;">0.576</td>
+<td style="text-align: right;">0.293</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Bar length: 30 min</td>
+<td style="text-align: right;">2,709</td>
+<td style="text-align: right;">0.01453</td>
+<td style="text-align: right;">0.498</td>
+<td style="text-align: right;">0.269</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">Bar length: 60 min</td>
+<td style="text-align: right;">1,344</td>
+<td style="text-align: right;">0.01559</td>
+<td style="text-align: right;">0.452</td>
+<td style="text-align: right;">0.245</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Trim: keep 100%</td>
+<td style="text-align: right;">17,797</td>
+<td style="text-align: right;">0.01081</td>
+<td style="text-align: right;">0.710</td>
+<td style="text-align: right;">0.260</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">Trim: keep 99%</td>
+<td style="text-align: right;">17,509</td>
+<td style="text-align: right;">0.01121</td>
+<td style="text-align: right;">0.732</td>
+<td style="text-align: right;">0.253</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Trim: keep 95%</td>
+<td style="text-align: right;">16,447</td>
+<td style="text-align: right;">0.01185</td>
+<td style="text-align: right;">0.764</td>
+<td style="text-align: right;">0.233</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">Trim: keep 90%</td>
+<td style="text-align: right;">15,128</td>
+<td style="text-align: right;">0.01234</td>
+<td style="text-align: right;">0.787</td>
+<td style="text-align: right;">0.213</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Zero-slippage orders dropped first</td>
+<td style="text-align: right;">16,417</td>
+<td style="text-align: right;">0.02289</td>
+<td style="text-align: right;">0.581</td>
+<td style="text-align: right;">0.278</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">ISO week 31</td>
+<td style="text-align: right;">2,010</td>
+<td style="text-align: right;">0.01089</td>
+<td style="text-align: right;">0.754</td>
+<td style="text-align: right;">0.291</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">ISO week 32</td>
+<td style="text-align: right;">3,282</td>
+<td style="text-align: right;">0.01443</td>
+<td style="text-align: right;">0.668</td>
+<td style="text-align: right;">0.298</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">ISO week 33</td>
+<td style="text-align: right;">3,863</td>
+<td style="text-align: right;">0.01553</td>
+<td style="text-align: right;">0.834</td>
+<td style="text-align: right;">0.269</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">ISO week 34</td>
+<td style="text-align: right;">3,969</td>
+<td style="text-align: right;">0.01219</td>
+<td style="text-align: right;">0.903</td>
+<td style="text-align: right;">0.180</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">ISO week 35</td>
+<td style="text-align: right;">3,323</td>
+<td style="text-align: right;">0.00917</td>
+<td style="text-align: right;">0.734</td>
+<td style="text-align: right;">0.321</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Taker buys only</td>
+<td style="text-align: right;">8,267</td>
+<td style="text-align: right;">0.01171</td>
+<td style="text-align: right;">0.757</td>
+<td style="text-align: right;">0.244</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">Taker sells only</td>
+<td style="text-align: right;">8,180</td>
+<td style="text-align: right;">0.01198</td>
+<td style="text-align: right;">0.770</td>
+<td style="text-align: right;">0.223</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<div class="cell">
+<details class="code-fold">
+<summary>Plot exponent stability</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb20"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb20-1"><a href="#cb20-1" aria-hidden="true" tabindex="-1"></a>bl <span class="ot">&lt;-</span> <span class="fu">rbindlist</span>(<span class="fu">lapply</span>(<span class="fu">c</span>(<span class="dv">1</span>, <span class="dv">5</span>, <span class="dv">15</span>, <span class="dv">30</span>, <span class="dv">60</span>), <span class="cf">function</span>(mm) {</span>
+<span id="cb20-2"><a href="#cb20-2" aria-hidden="true" tabindex="-1"></a>  f  <span class="ot">&lt;-</span> <span class="fu">apply_filters</span>(<span class="fu">make_bars</span>(orders, mm))</span>
+<span id="cb20-3"><a href="#cb20-3" aria-hidden="true" tabindex="-1"></a>  m  <span class="ot">&lt;-</span> <span class="fu">lm</span>(<span class="fu">log</span>(slip_vw) <span class="sc">~</span> <span class="fu">log</span>(rho), f)</span>
+<span id="cb20-4"><a href="#cb20-4" aria-hidden="true" tabindex="-1"></a>  f2 <span class="ot">&lt;-</span> <span class="fu">copy</span>(f)[, rb <span class="sc">:</span><span class="er">=</span> <span class="fu">cut</span>(rho, <span class="fu">unique</span>(<span class="fu">quantile</span>(rho, <span class="fu">seq</span>(<span class="dv">0</span>, <span class="dv">1</span>, <span class="at">length.out =</span> N_BINS <span class="sc">+</span> <span class="dv">1</span>))),</span>
+<span id="cb20-5"><a href="#cb20-5" aria-hidden="true" tabindex="-1"></a>                            <span class="at">include.lowest =</span> <span class="cn">TRUE</span>)]</span>
+<span id="cb20-6"><a href="#cb20-6" aria-hidden="true" tabindex="-1"></a>  bn <span class="ot">&lt;-</span> f2[<span class="sc">!</span><span class="fu">is.na</span>(rb), .(<span class="at">ms =</span> <span class="fu">mean</span>(slip_vw), <span class="at">r =</span> <span class="fu">median</span>(rho), <span class="at">n =</span> .N), by <span class="ot">=</span> rb]</span>
+<span id="cb20-7"><a href="#cb20-7" aria-hidden="true" tabindex="-1"></a>  mb <span class="ot">&lt;-</span> <span class="fu">lm</span>(<span class="fu">log</span>(ms) <span class="sc">~</span> <span class="fu">log</span>(r), bn, <span class="at">weights =</span> bn<span class="sc">$</span>n)</span>
+<span id="cb20-8"><a href="#cb20-8" aria-hidden="true" tabindex="-1"></a>  <span class="fu">data.table</span>(<span class="at">minutes =</span> mm,</span>
+<span id="cb20-9"><a href="#cb20-9" aria-hidden="true" tabindex="-1"></a>             <span class="st">`</span><span class="at">Unbinned regression</span><span class="st">`</span>  <span class="ot">=</span> <span class="fu">coef</span>(m)[[<span class="dv">2</span>]],</span>
+<span id="cb20-10"><a href="#cb20-10" aria-hidden="true" tabindex="-1"></a>             <span class="st">`</span><span class="at">Conditional-mean fit</span><span class="st">`</span> <span class="ot">=</span> <span class="fu">coef</span>(mb)[[<span class="dv">2</span>]])</span>
+<span id="cb20-11"><a href="#cb20-11" aria-hidden="true" tabindex="-1"></a>}))</span>
+<span id="cb20-12"><a href="#cb20-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb20-13"><a href="#cb20-13" aria-hidden="true" tabindex="-1"></a><span class="fu">ggplot</span>(<span class="fu">melt</span>(bl, <span class="at">id.vars =</span> <span class="st">"minutes"</span>, <span class="at">variable.name =</span> <span class="st">"Estimator"</span>, <span class="at">value.name =</span> <span class="st">"phi"</span>),</span>
+<span id="cb20-14"><a href="#cb20-14" aria-hidden="true" tabindex="-1"></a>       <span class="fu">aes</span>(<span class="at">x =</span> minutes, <span class="at">y =</span> phi, <span class="at">colour =</span> Estimator)) <span class="sc">+</span></span>
+<span id="cb20-15"><a href="#cb20-15" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_hline</span>(<span class="at">yintercept =</span> <span class="fl">0.5</span>, <span class="at">linetype =</span> <span class="st">"dotted"</span>, <span class="at">colour =</span> <span class="st">"grey50"</span>) <span class="sc">+</span></span>
+<span id="cb20-16"><a href="#cb20-16" aria-hidden="true" tabindex="-1"></a>  <span class="fu">annotate</span>(<span class="st">"text"</span>, <span class="at">x =</span> <span class="dv">1</span>, <span class="at">y =</span> <span class="fl">0.5</span>, <span class="at">label =</span> <span class="st">"square-root law"</span>, <span class="at">vjust =</span> <span class="sc">-</span><span class="fl">0.6</span>,</span>
+<span id="cb20-17"><a href="#cb20-17" aria-hidden="true" tabindex="-1"></a>           <span class="at">hjust =</span> <span class="dv">0</span>, <span class="at">size =</span> <span class="dv">3</span>, <span class="at">colour =</span> <span class="st">"grey45"</span>) <span class="sc">+</span></span>
+<span id="cb20-18"><a href="#cb20-18" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_line</span>(<span class="at">linewidth =</span> <span class="fl">0.7</span>) <span class="sc">+</span></span>
+<span id="cb20-19"><a href="#cb20-19" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_point</span>(<span class="at">size =</span> <span class="fl">2.2</span>) <span class="sc">+</span></span>
+<span id="cb20-20"><a href="#cb20-20" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_colour_manual</span>(<span class="at">values =</span> <span class="fu">c</span>(<span class="st">"Unbinned regression"</span>  <span class="ot">=</span> col_data,</span>
+<span id="cb20-21"><a href="#cb20-21" aria-hidden="true" tabindex="-1"></a>                                 <span class="st">"Conditional-mean fit"</span> <span class="ot">=</span> col_model)) <span class="sc">+</span></span>
+<span id="cb20-22"><a href="#cb20-22" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_x_log10</span>(<span class="at">breaks =</span> <span class="fu">c</span>(<span class="dv">1</span>, <span class="dv">5</span>, <span class="dv">15</span>, <span class="dv">30</span>, <span class="dv">60</span>)) <span class="sc">+</span></span>
+<span id="cb20-23"><a href="#cb20-23" aria-hidden="true" tabindex="-1"></a>  <span class="fu">expand_limits</span>(<span class="at">y =</span> <span class="fl">0.4</span>) <span class="sc">+</span></span>
+<span id="cb20-24"><a href="#cb20-24" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(</span>
+<span id="cb20-25"><a href="#cb20-25" aria-hidden="true" tabindex="-1"></a>    <span class="at">title    =</span> <span class="st">"Exponent stability across bar length"</span>,</span>
+<span id="cb20-26"><a href="#cb20-26" aria-hidden="true" tabindex="-1"></a>    <span class="at">subtitle =</span> <span class="st">"The conditional-mean estimator does not depend on the sampling horizon"</span>,</span>
+<span id="cb20-27"><a href="#cb20-27" aria-hidden="true" tabindex="-1"></a>    <span class="at">x =</span> <span class="st">"Bar length (minutes, log scale)"</span>, <span class="at">y =</span> <span class="st">"Estimated exponent"</span></span>
+<span id="cb20-28"><a href="#cb20-28" aria-hidden="true" tabindex="-1"></a>  )</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output-display">
+<div id="fig-robust" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-robust-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<img src="execution_cost_function_files/figure-html/fig-robust-1.png" class="img-fluid figure-img" width="768">
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-robust-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;7: The exponent across bar lengths under both estimators. The conditional-mean estimator is stable throughout and drifts toward the square-root value as the horizon lengthens.
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<p>The estimates hold up. Buys and sells agree to within 0.013, and tightening the trim from keeping 100% of bars to keeping 90% moves <span class="math inline">\(\phi\)</span> by less than 0.08.</p>
+<p>Two entries deserve comment. The 1-minute unbinned fit is the one clear outlier, at <span class="math inline">\(\phi =\)</span> 1.53; at that horizon many bars contain only a handful of orders, so <code>slip_vw</code> is often close to zero and the log transform amplifies the resulting noise. The conditional-mean estimator at the same horizon gives 0.64, in line with every other bar length. Separately, dropping zero-slippage orders <em>before</em> aggregating raises <span class="math inline">\(\hat\eta\)</span> from 0.01185 to 0.02289, exactly as expected: removing the cost-free executions inflates every bar average. It is reported for completeness but not used.</p>
+</section>
+<section id="why-not-estimate-at-the-order-level" class="level1">
+<h1>Why not estimate at the order level?</h1>
+<p>It is natural to want <span class="math inline">\(\rho\)</span> defined per marketable order, and the reason that does not work is worth recording. The obstacle is scale. The median order is 3.6 SOL against an average daily volume of roughly 1.6M SOL, so <span class="math inline">\(\rho \approx 10^{-6}\)</span>. Essentially every order fills within one or two book levels, and its slippage is pinned by the tick size rather than driven by its size — there is no dynamic range for the exponent to be identified from.</p>
+<div class="cell">
+<details class="code-fold">
+<summary>Order-level fit, for comparison</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb21"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb21-1"><a href="#cb21-1" aria-hidden="true" tabindex="-1"></a>orders[, adv       <span class="sc">:</span><span class="er">=</span> daily_volume[<span class="fu">match</span>(orders<span class="sc">$</span>date, date)]<span class="sc">$</span>adv]</span>
+<span id="cb21-2"><a href="#cb21-2" aria-hidden="true" tabindex="-1"></a>orders[, rho_order <span class="sc">:</span><span class="er">=</span> base_qty <span class="sc">/</span> adv]</span>
+<span id="cb21-3"><a href="#cb21-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb21-4"><a href="#cb21-4" aria-hidden="true" tabindex="-1"></a>ord_sample <span class="ot">&lt;-</span> orders[slippage <span class="sc">&gt;</span> <span class="dv">0</span> <span class="sc">&amp;</span> rho_order <span class="sc">&gt;</span> <span class="dv">0</span>]</span>
+<span id="cb21-5"><a href="#cb21-5" aria-hidden="true" tabindex="-1"></a>ord_fit    <span class="ot">&lt;-</span> <span class="fu">lm</span>(<span class="fu">log</span>(slippage) <span class="sc">~</span> <span class="fu">log</span>(rho_order), ord_sample)</span>
+<span id="cb21-6"><a href="#cb21-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb21-7"><a href="#cb21-7" aria-hidden="true" tabindex="-1"></a>ord_weeks <span class="ot">&lt;-</span> <span class="fu">rbindlist</span>(<span class="fu">lapply</span>(<span class="fu">sort</span>(<span class="fu">unique</span>(<span class="fu">isoweek</span>(ord_sample<span class="sc">$</span>ts))), <span class="cf">function</span>(w) {</span>
+<span id="cb21-8"><a href="#cb21-8" aria-hidden="true" tabindex="-1"></a>  m <span class="ot">&lt;-</span> <span class="fu">lm</span>(<span class="fu">log</span>(slippage) <span class="sc">~</span> <span class="fu">log</span>(rho_order), ord_sample[<span class="fu">isoweek</span>(ts) <span class="sc">==</span> w])</span>
+<span id="cb21-9"><a href="#cb21-9" aria-hidden="true" tabindex="-1"></a>  <span class="fu">data.table</span>(<span class="at">Week =</span> w, <span class="at">phi =</span> <span class="fu">coef</span>(m)[[<span class="dv">2</span>]], <span class="at">R2 =</span> <span class="fu">summary</span>(m)<span class="sc">$</span>r.squared)</span>
+<span id="cb21-10"><a href="#cb21-10" aria-hidden="true" tabindex="-1"></a>}))</span>
+<span id="cb21-11"><a href="#cb21-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb21-12"><a href="#cb21-12" aria-hidden="true" tabindex="-1"></a>knitr<span class="sc">::</span><span class="fu">kable</span>(ord_weeks, <span class="at">digits =</span> <span class="dv">4</span>,</span>
+<span id="cb21-13"><a href="#cb21-13" aria-hidden="true" tabindex="-1"></a>             <span class="at">col.names =</span> <span class="fu">c</span>(<span class="st">"ISO week"</span>, <span class="st">"$</span><span class="sc">\\</span><span class="st">hat</span><span class="sc">\\</span><span class="st">phi$"</span>, <span class="st">"$R^2$"</span>),</span>
+<span id="cb21-14"><a href="#cb21-14" aria-hidden="true" tabindex="-1"></a>             <span class="at">caption =</span> <span class="fu">sprintf</span>(</span>
+<span id="cb21-15"><a href="#cb21-15" aria-hidden="true" tabindex="-1"></a>               <span class="st">"Order-level exponent by week. Full-sample fit: phi = %.3f, R-squared = %.4f, n = %s."</span>,</span>
+<span id="cb21-16"><a href="#cb21-16" aria-hidden="true" tabindex="-1"></a>               <span class="fu">coef</span>(ord_fit)[[<span class="dv">2</span>]], <span class="fu">summary</span>(ord_fit)<span class="sc">$</span>r.squared, <span class="fu">comma</span>(<span class="fu">nrow</span>(ord_sample))))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output-display">
+<table class="caption-top table table-sm table-striped small">
+<caption>Order-level exponent by week. Full-sample fit: phi = 0.952, R-squared = 0.0412, n = 963,925.</caption>
+<thead>
+<tr class="header">
+<th style="text-align: right;">ISO week</th>
+<th style="text-align: right;"><span class="math inline">\(\hat\phi\)</span></th>
+<th style="text-align: right;"><span class="math inline">\(R^2\)</span></th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: right;">31</td>
+<td style="text-align: right;">0.3116</td>
+<td style="text-align: right;">0.0078</td>
+</tr>
+<tr class="even">
+<td style="text-align: right;">32</td>
+<td style="text-align: right;">1.5214</td>
+<td style="text-align: right;">0.0754</td>
+</tr>
+<tr class="odd">
+<td style="text-align: right;">33</td>
+<td style="text-align: right;">0.9454</td>
+<td style="text-align: right;">0.0392</td>
+</tr>
+<tr class="even">
+<td style="text-align: right;">34</td>
+<td style="text-align: right;">1.1427</td>
+<td style="text-align: right;">0.0477</td>
+</tr>
+<tr class="odd">
+<td style="text-align: right;">35</td>
+<td style="text-align: right;">0.7005</td>
+<td style="text-align: right;">0.0287</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<p>The full-sample fit explains 4.1% of the variation, and the weekly estimates range from 0.31 to 1.52 — the parameter is not identified. Aggregating to bars fixes this because it lifts <span class="math inline">\(\rho\)</span> into a range where size, rather than the tick, determines cost.</p>
+</section>
+<section id="conclusion" class="level1">
+<h1>Conclusion</h1>
+<p>The fitted execution cost function for SOLUSD_PERP over 2024-08 is</p>
+<p><span class="math display">\[
+L(\rho) = \hat\eta\,|\rho|^{1+\hat\phi} + \hat\psi\,|\rho|,
+\qquad
+\hat\eta = 0.01185,\quad
+\hat\phi = 0.764,\quad
+\hat\psi = 0.00880,
+\]</span></p>
+<p>with the conditional-mean estimator giving <span class="math inline">\(\hat\phi =\)</span> 0.647 as the more robust alternative. All figures are in USD per SOL. <span class="math inline">\(\hat\psi\)</span> covers the spread only; the venue fee is a known constant that adds to it.</p>
+<div class="cell">
+<details class="code-fold">
+<summary>Plot the fitted cost function</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb22"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb22-1"><a href="#cb22-1" aria-hidden="true" tabindex="-1"></a>crossover <span class="ot">&lt;-</span> (psi_vw <span class="sc">/</span> eta)<span class="sc">^</span>(<span class="dv">1</span> <span class="sc">/</span> phi)</span>
+<span id="cb22-2"><a href="#cb22-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb22-3"><a href="#cb22-3" aria-hidden="true" tabindex="-1"></a>curve <span class="ot">&lt;-</span> <span class="fu">data.table</span>(<span class="at">rho =</span> <span class="dv">10</span><span class="sc">^</span><span class="fu">seq</span>(<span class="fu">log10</span>(<span class="fu">min</span>(bars<span class="sc">$</span>rho)), <span class="fu">log10</span>(<span class="fu">max</span>(bars<span class="sc">$</span>rho)),</span>
+<span id="cb22-4"><a href="#cb22-4" aria-hidden="true" tabindex="-1"></a>                                 <span class="at">length.out =</span> <span class="dv">300</span>))</span>
+<span id="cb22-5"><a href="#cb22-5" aria-hidden="true" tabindex="-1"></a>curve[, <span class="st">`</span><span class="at">Temporary impact</span><span class="st">`</span>  <span class="sc">:</span><span class="er">=</span> <span class="fl">1e4</span> <span class="sc">*</span> eta <span class="sc">*</span> rho<span class="sc">^</span>phi <span class="sc">/</span> mean_price]</span>
+<span id="cb22-6"><a href="#cb22-6" aria-hidden="true" tabindex="-1"></a>curve[, <span class="st">`</span><span class="at">Proportional cost</span><span class="st">`</span> <span class="sc">:</span><span class="er">=</span> <span class="fl">1e4</span> <span class="sc">*</span> psi_vw <span class="sc">/</span> mean_price]</span>
+<span id="cb22-7"><a href="#cb22-7" aria-hidden="true" tabindex="-1"></a>curve[, <span class="st">`</span><span class="at">Total</span><span class="st">`</span>             <span class="sc">:</span><span class="er">=</span> <span class="st">`</span><span class="at">Temporary impact</span><span class="st">`</span> <span class="sc">+</span> <span class="st">`</span><span class="at">Proportional cost</span><span class="st">`</span>]</span>
+<span id="cb22-8"><a href="#cb22-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb22-9"><a href="#cb22-9" aria-hidden="true" tabindex="-1"></a><span class="fu">ggplot</span>(<span class="fu">melt</span>(curve, <span class="at">id.vars =</span> <span class="st">"rho"</span>, <span class="at">variable.name =</span> <span class="st">"Component"</span>, <span class="at">value.name =</span> <span class="st">"bps"</span>),</span>
+<span id="cb22-10"><a href="#cb22-10" aria-hidden="true" tabindex="-1"></a>       <span class="fu">aes</span>(<span class="at">x =</span> rho, <span class="at">y =</span> bps, <span class="at">colour =</span> Component)) <span class="sc">+</span></span>
+<span id="cb22-11"><a href="#cb22-11" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_vline</span>(<span class="at">xintercept =</span> crossover, <span class="at">linetype =</span> <span class="st">"dotted"</span>, <span class="at">colour =</span> <span class="st">"grey50"</span>) <span class="sc">+</span></span>
+<span id="cb22-12"><a href="#cb22-12" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_line</span>(<span class="at">linewidth =</span> <span class="fl">0.9</span>) <span class="sc">+</span></span>
+<span id="cb22-13"><a href="#cb22-13" aria-hidden="true" tabindex="-1"></a>  <span class="fu">annotate</span>(<span class="st">"text"</span>, <span class="at">x =</span> crossover, <span class="at">y =</span> <span class="fu">max</span>(curve<span class="sc">$</span>Total),</span>
+<span id="cb22-14"><a href="#cb22-14" aria-hidden="true" tabindex="-1"></a>           <span class="at">label =</span> <span class="fu">sprintf</span>(<span class="st">"  crossover at rho = %.2f"</span>, crossover),</span>
+<span id="cb22-15"><a href="#cb22-15" aria-hidden="true" tabindex="-1"></a>           <span class="at">hjust =</span> <span class="dv">0</span>, <span class="at">size =</span> <span class="dv">3</span>, <span class="at">colour =</span> <span class="st">"grey35"</span>) <span class="sc">+</span></span>
+<span id="cb22-16"><a href="#cb22-16" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_colour_manual</span>(<span class="at">values =</span> <span class="fu">c</span>(<span class="st">"Temporary impact"</span>  <span class="ot">=</span> col_model,</span>
+<span id="cb22-17"><a href="#cb22-17" aria-hidden="true" tabindex="-1"></a>                                 <span class="st">"Proportional cost"</span> <span class="ot">=</span> col_muted,</span>
+<span id="cb22-18"><a href="#cb22-18" aria-hidden="true" tabindex="-1"></a>                                 <span class="st">"Total"</span>             <span class="ot">=</span> col_data)) <span class="sc">+</span></span>
+<span id="cb22-19"><a href="#cb22-19" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_x_log10</span>(<span class="at">labels =</span> <span class="fu">label_number</span>(<span class="at">accuracy =</span> <span class="fl">0.01</span>)) <span class="sc">+</span></span>
+<span id="cb22-20"><a href="#cb22-20" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(</span>
+<span id="cb22-21"><a href="#cb22-21" aria-hidden="true" tabindex="-1"></a>    <span class="at">title    =</span> <span class="st">"Estimated cost of crossing the spread, per token"</span>,</span>
+<span id="cb22-22"><a href="#cb22-22" aria-hidden="true" tabindex="-1"></a>    <span class="at">subtitle =</span> <span class="fu">sprintf</span>(<span class="st">"%s, %s — eta = %.5f, phi = %.3f, psi = %.5f USD/SOL"</span>,</span>
+<span id="cb22-23"><a href="#cb22-23" aria-hidden="true" tabindex="-1"></a>                       SYMBOL, MONTH, eta, phi, psi_vw),</span>
+<span id="cb22-24"><a href="#cb22-24" aria-hidden="true" tabindex="-1"></a>    <span class="at">x =</span> <span class="fu">expression</span>(rho <span class="sc">==</span> v[t]<span class="sc">/</span>V[t]), <span class="at">y =</span> <span class="st">"Cost (bps of mid-price)"</span></span>
+<span id="cb22-25"><a href="#cb22-25" aria-hidden="true" tabindex="-1"></a>  )</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output-display">
+<div id="fig-cost" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-cost-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<img src="execution_cost_function_files/figure-html/fig-cost-1.png" class="img-fluid figure-img" width="768">
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-cost-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;8: The estimated per-token cost of crossing, decomposed. Below the crossover the spread dominates; above it, temporary impact does.
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<p>Three things are worth drawing out.</p>
+<p><strong>The exponent is close to the square-root law.</strong> <span class="math inline">\(\hat\phi \approx\)</span> 0.65–0.76, converging on <span class="math inline">\(0.5\)</span> as the bar length grows. That <span class="math inline">\(L(\rho) \propto \rho^{1+\phi}\)</span> is strictly convex is what the optimal-execution problem requires, and the condition holds comfortably: <span class="math inline">\(\hat\phi &gt; 0\)</span> with a standard error of 0.011.</p>
+<p><strong>Spread and impact cross over near <span class="math inline">\(\rho =\)</span> 0.68.</strong> Below that participation rate the fixed cost of crossing dominates the cost of walking the book, so a schedule’s binding constraint is how <em>often</em> it crosses, not how hard it pushes. Above it, impact dominates and the trade-off against timing risk becomes the live one. For context, the median bar in this sample sits at <span class="math inline">\(\rho =\)</span> 0.24, below the crossover.</p>
+<p><strong>Costs on this instrument are small in absolute terms.</strong> At <span class="math inline">\(\rho = 1\)</span> — one side trading at the market’s entire average rate — the total per-token cost is about 1.44 bps before fees. For any schedule operating below the crossover, the venue fee is the larger part of the total cost.</p>
+<p>A caveat on external validity: this is one month of one instrument, and August 2024 contains the 5 August volatility event. The weekly breakdown in the robustness table is reassuring, but confirming <span class="math inline">\(\hat\phi\)</span> on other months and other instruments — both available in <code>data/</code> — is the natural next step.</p>
+</section>
+
+</main>
+<!-- /main column -->
+<script id="quarto-html-after-body" type="application/javascript">
+  window.document.addEventListener("DOMContentLoaded", function (event) {
+    const icon = "";
+    const anchorJS = new window.AnchorJS();
+    anchorJS.options = {
+      placement: 'right',
+      icon: icon
+    };
+    anchorJS.add('.anchored');
+    const isCodeAnnotation = (el) => {
+      for (const clz of el.classList) {
+        if (clz.startsWith('code-annotation-')) {                     
+          return true;
+        }
+      }
+      return false;
+    }
+    const onCopySuccess = function(e) {
+      // button target
+      const button = e.trigger;
+      // don't keep focus
+      button.blur();
+      // flash "checked"
+      button.classList.add('code-copy-button-checked');
+      var currentTitle = button.getAttribute("title");
+      button.setAttribute("title", "Copied!");
+      let tooltip;
+      if (window.bootstrap) {
+        button.setAttribute("data-bs-toggle", "tooltip");
+        button.setAttribute("data-bs-placement", "left");
+        button.setAttribute("data-bs-title", "Copied!");
+        tooltip = new bootstrap.Tooltip(button, 
+          { trigger: "manual", 
+            customClass: "code-copy-button-tooltip",
+            offset: [0, -8]});
+        tooltip.show();    
+      }
+      setTimeout(function() {
+        if (tooltip) {
+          tooltip.hide();
+          button.removeAttribute("data-bs-title");
+          button.removeAttribute("data-bs-toggle");
+          button.removeAttribute("data-bs-placement");
+        }
+        button.setAttribute("title", currentTitle);
+        button.classList.remove('code-copy-button-checked');
+      }, 1000);
+      // clear code selection
+      e.clearSelection();
+    }
+    const getTextToCopy = function(trigger) {
+      const outerScaffold = trigger.parentElement.cloneNode(true);
+      const codeEl = outerScaffold.querySelector('code');
+      for (const childEl of codeEl.children) {
+        if (isCodeAnnotation(childEl)) {
+          childEl.remove();
+        }
+      }
+      return codeEl.innerText;
+    }
+    const clipboard = new window.ClipboardJS('.code-copy-button:not([data-in-quarto-modal])', {
+      text: getTextToCopy
+    });
+    clipboard.on('success', onCopySuccess);
+    if (window.document.getElementById('quarto-embedded-source-code-modal')) {
+      const clipboardModal = new window.ClipboardJS('.code-copy-button[data-in-quarto-modal]', {
+        text: getTextToCopy,
+        container: window.document.getElementById('quarto-embedded-source-code-modal')
+      });
+      clipboardModal.on('success', onCopySuccess);
+    }
+      var localhostRegex = new RegExp(/^(?:http|https):\/\/localhost\:?[0-9]*\//);
+      var mailtoRegex = new RegExp(/^mailto:/);
+        var filterRegex = new RegExp('/' + window.location.host + '/');
+      var isInternal = (href) => {
+          return filterRegex.test(href) || localhostRegex.test(href) || mailtoRegex.test(href);
+      }
+      // Inspect non-navigation links and adorn them if external
+     var links = window.document.querySelectorAll('a[href]:not(.nav-link):not(.navbar-brand):not(.toc-action):not(.sidebar-link):not(.sidebar-item-toggle):not(.pagination-link):not(.no-external):not([aria-hidden]):not(.dropdown-item):not(.quarto-navigation-tool):not(.about-link)');
+      for (var i=0; i<links.length; i++) {
+        const link = links[i];
+        if (!isInternal(link.href)) {
+          // undo the damage that might have been done by quarto-nav.js in the case of
+          // links that we want to consider external
+          if (link.dataset.originalHref !== undefined) {
+            link.href = link.dataset.originalHref;
+          }
+        }
+      }
+    function tippyHover(el, contentFn, onTriggerFn, onUntriggerFn) {
+      const config = {
+        allowHTML: true,
+        maxWidth: 500,
+        delay: 100,
+        arrow: false,
+        appendTo: function(el) {
+            return el.parentElement;
+        },
+        interactive: true,
+        interactiveBorder: 10,
+        theme: 'quarto',
+        placement: 'bottom-start',
+      };
+      if (contentFn) {
+        config.content = contentFn;
+      }
+      if (onTriggerFn) {
+        config.onTrigger = onTriggerFn;
+      }
+      if (onUntriggerFn) {
+        config.onUntrigger = onUntriggerFn;
+      }
+      window.tippy(el, config); 
+    }
+    const noterefs = window.document.querySelectorAll('a[role="doc-noteref"]');
+    for (var i=0; i<noterefs.length; i++) {
+      const ref = noterefs[i];
+      tippyHover(ref, function() {
+        // use id or data attribute instead here
+        let href = ref.getAttribute('data-footnote-href') || ref.getAttribute('href');
+        try { href = new URL(href).hash; } catch {}
+        const id = href.replace(/^#\/?/, "");
+        const note = window.document.getElementById(id);
+        if (note) {
+          return note.innerHTML;
+        } else {
+          return "";
+        }
+      });
+    }
+    const xrefs = window.document.querySelectorAll('a.quarto-xref');
+    const processXRef = (id, note) => {
+      // Strip column container classes
+      const stripColumnClz = (el) => {
+        el.classList.remove("page-full", "page-columns");
+        if (el.children) {
+          for (const child of el.children) {
+            stripColumnClz(child);
+          }
+        }
+      }
+      stripColumnClz(note)
+      if (id === null || id.startsWith('sec-')) {
+        // Special case sections, only their first couple elements
+        const container = document.createElement("div");
+        if (note.children && note.children.length > 2) {
+          container.appendChild(note.children[0].cloneNode(true));
+          for (let i = 1; i < note.children.length; i++) {
+            const child = note.children[i];
+            if (child.tagName === "P" && child.innerText === "") {
+              continue;
+            } else {
+              container.appendChild(child.cloneNode(true));
+              break;
+            }
+          }
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(container);
+          }
+          return container.innerHTML
+        } else {
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(note);
+          }
+          return note.innerHTML;
+        }
+      } else {
+        // Remove any anchor links if they are present
+        const anchorLink = note.querySelector('a.anchorjs-link');
+        if (anchorLink) {
+          anchorLink.remove();
+        }
+        if (window.Quarto?.typesetMath) {
+          window.Quarto.typesetMath(note);
+        }
+        if (note.classList.contains("callout")) {
+          return note.outerHTML;
+        } else {
+          return note.innerHTML;
+        }
+      }
+    }
+    for (var i=0; i<xrefs.length; i++) {
+      const xref = xrefs[i];
+      tippyHover(xref, undefined, function(instance) {
+        instance.disable();
+        let url = xref.getAttribute('href');
+        let hash = undefined; 
+        if (url.startsWith('#')) {
+          hash = url;
+        } else {
+          try { hash = new URL(url).hash; } catch {}
+        }
+        if (hash) {
+          const id = hash.replace(/^#\/?/, "");
+          const note = window.document.getElementById(id);
+          if (note !== null) {
+            try {
+              const html = processXRef(id, note.cloneNode(true));
+              instance.setContent(html);
+            } finally {
+              instance.enable();
+              instance.show();
+            }
+          } else {
+            // See if we can fetch this
+            fetch(url.split('#')[0])
+            .then(res => res.text())
+            .then(html => {
+              const parser = new DOMParser();
+              const htmlDoc = parser.parseFromString(html, "text/html");
+              const note = htmlDoc.getElementById(id);
+              if (note !== null) {
+                const html = processXRef(id, note);
+                instance.setContent(html);
+              } 
+            }).finally(() => {
+              instance.enable();
+              instance.show();
+            });
+          }
+        } else {
+          // See if we can fetch a full url (with no hash to target)
+          // This is a special case and we should probably do some content thinning / targeting
+          fetch(url)
+          .then(res => res.text())
+          .then(html => {
+            const parser = new DOMParser();
+            const htmlDoc = parser.parseFromString(html, "text/html");
+            const note = htmlDoc.querySelector('main.content');
+            if (note !== null) {
+              // This should only happen for chapter cross references
+              // (since there is no id in the URL)
+              // remove the first header
+              if (note.children.length > 0 && note.children[0].tagName === "HEADER") {
+                note.children[0].remove();
+              }
+              const html = processXRef(null, note);
+              instance.setContent(html);
+            } 
+          }).finally(() => {
+            instance.enable();
+            instance.show();
+          });
+        }
+      }, function(instance) {
+      });
+    }
+        let selectedAnnoteEl;
+        const selectorForAnnotation = ( cell, annotation) => {
+          let cellAttr = 'data-code-cell="' + cell + '"';
+          let lineAttr = 'data-code-annotation="' +  annotation + '"';
+          const selector = 'span[' + cellAttr + '][' + lineAttr + ']';
+          return selector;
+        }
+        const selectCodeLines = (annoteEl) => {
+          const doc = window.document;
+          const targetCell = annoteEl.getAttribute("data-target-cell");
+          const targetAnnotation = annoteEl.getAttribute("data-target-annotation");
+          const annoteSpan = window.document.querySelector(selectorForAnnotation(targetCell, targetAnnotation));
+          const lines = annoteSpan.getAttribute("data-code-lines").split(",");
+          const lineIds = lines.map((line) => {
+            return targetCell + "-" + line;
+          })
+          let top = null;
+          let height = null;
+          let parent = null;
+          if (lineIds.length > 0) {
+              //compute the position of the single el (top and bottom and make a div)
+              const el = window.document.getElementById(lineIds[0]);
+              top = el.offsetTop;
+              height = el.offsetHeight;
+              parent = el.parentElement.parentElement;
+            if (lineIds.length > 1) {
+              const lastEl = window.document.getElementById(lineIds[lineIds.length - 1]);
+              const bottom = lastEl.offsetTop + lastEl.offsetHeight;
+              height = bottom - top;
+            }
+            if (top !== null && height !== null && parent !== null) {
+              // cook up a div (if necessary) and position it 
+              let div = window.document.getElementById("code-annotation-line-highlight");
+              if (div === null) {
+                div = window.document.createElement("div");
+                div.setAttribute("id", "code-annotation-line-highlight");
+                div.style.position = 'absolute';
+                parent.appendChild(div);
+              }
+              div.style.top = top - 2 + "px";
+              div.style.height = height + 4 + "px";
+              div.style.left = 0;
+              let gutterDiv = window.document.getElementById("code-annotation-line-highlight-gutter");
+              if (gutterDiv === null) {
+                gutterDiv = window.document.createElement("div");
+                gutterDiv.setAttribute("id", "code-annotation-line-highlight-gutter");
+                gutterDiv.style.position = 'absolute';
+                const codeCell = window.document.getElementById(targetCell);
+                const gutter = codeCell.querySelector('.code-annotation-gutter');
+                gutter.appendChild(gutterDiv);
+              }
+              gutterDiv.style.top = top - 2 + "px";
+              gutterDiv.style.height = height + 4 + "px";
+            }
+            selectedAnnoteEl = annoteEl;
+          }
+        };
+        const unselectCodeLines = () => {
+          const elementsIds = ["code-annotation-line-highlight", "code-annotation-line-highlight-gutter"];
+          elementsIds.forEach((elId) => {
+            const div = window.document.getElementById(elId);
+            if (div) {
+              div.remove();
+            }
+          });
+          selectedAnnoteEl = undefined;
+        };
+          // Handle positioning of the toggle
+      window.addEventListener(
+        "resize",
+        throttle(() => {
+          elRect = undefined;
+          if (selectedAnnoteEl) {
+            selectCodeLines(selectedAnnoteEl);
+          }
+        }, 10)
+      );
+      function throttle(fn, ms) {
+      let throttle = false;
+      let timer;
+        return (...args) => {
+          if(!throttle) { // first call gets through
+              fn.apply(this, args);
+              throttle = true;
+          } else { // all the others get throttled
+              if(timer) clearTimeout(timer); // cancel #2
+              timer = setTimeout(() => {
+                fn.apply(this, args);
+                timer = throttle = false;
+              }, ms);
+          }
+        };
+      }
+        // Attach click handler to the DT
+        const annoteDls = window.document.querySelectorAll('dt[data-target-cell]');
+        for (const annoteDlNode of annoteDls) {
+          annoteDlNode.addEventListener('click', (event) => {
+            const clickedEl = event.target;
+            if (clickedEl !== selectedAnnoteEl) {
+              unselectCodeLines();
+              const activeEl = window.document.querySelector('dt[data-target-cell].code-annotation-active');
+              if (activeEl) {
+                activeEl.classList.remove('code-annotation-active');
+              }
+              selectCodeLines(clickedEl);
+              clickedEl.classList.add('code-annotation-active');
+            } else {
+              // Unselect the line
+              unselectCodeLines();
+              clickedEl.classList.remove('code-annotation-active');
+            }
+          });
+        }
+    const findCites = (el) => {
+      const parentEl = el.parentElement;
+      if (parentEl) {
+        const cites = parentEl.dataset.cites;
+        if (cites) {
+          return {
+            el,
+            cites: cites.split(' ')
+          };
+        } else {
+          return findCites(el.parentElement)
+        }
+      } else {
+        return undefined;
+      }
+    };
+    var bibliorefs = window.document.querySelectorAll('a[role="doc-biblioref"]');
+    for (var i=0; i<bibliorefs.length; i++) {
+      const ref = bibliorefs[i];
+      const citeInfo = findCites(ref);
+      if (citeInfo) {
+        tippyHover(citeInfo.el, function() {
+          var popup = window.document.createElement('div');
+          citeInfo.cites.forEach(function(cite) {
+            var citeDiv = window.document.createElement('div');
+            citeDiv.classList.add('hanging-indent');
+            citeDiv.classList.add('csl-entry');
+            var biblioDiv = window.document.getElementById('ref-' + cite);
+            if (biblioDiv) {
+              citeDiv.innerHTML = biblioDiv.innerHTML;
+            }
+            popup.appendChild(citeDiv);
+          });
+          return popup.innerHTML;
+        });
+      }
+    }
+  });
+  </script>
+</div> <!-- /content -->
+
+
+
+
+</body></html>
