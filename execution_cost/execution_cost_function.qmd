@@ -1,7 +1,7 @@
 ---
 title: "Estimation of the Execution Cost Function"
 format:
-  html:
+  pdf:
     toc: true
     toc-depth: 3
     code-fold: true
@@ -25,6 +25,12 @@ library(zoo)
 library(scales)
 
 setDTthreads(0)
+
+# For PDF output, use cairo_pdf rather than the default pdf() device: pdf()
+# cannot encode non-ASCII characters (Greek letters, em-dashes) in plot labels
+# and drops them silently with only a warning. cairo_pdf handles UTF-8 and is
+# still vector output. Guarded so HTML rendering is unaffected.
+if (knitr::is_latex_output()) knitr::opts_chunk$set(dev = "cairo_pdf")
 
 # Format a number as "$m \times 10^{e}$" for correctly rendered scientific notation inline.
 format_sci <- function(x, digits = 3) {

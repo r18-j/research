@@ -116,11 +116,18 @@ window.Quarto = {
    
   <ul>
   <li><a href="#introduction" id="toc-introduction" class="nav-link active" data-scroll-target="#introduction">Introduction</a></li>
+  <li><a href="#data" id="toc-data" class="nav-link" data-scroll-target="#data">Data</a></li>
+  <li><a href="#bar-construction" id="toc-bar-construction" class="nav-link" data-scroll-target="#bar-construction">Bar construction</a></li>
+  <li><a href="#data-cleaning" id="toc-data-cleaning" class="nav-link" data-scroll-target="#data-cleaning">Data cleaning</a></li>
   <li><a href="#regression" id="toc-regression" class="nav-link" data-scroll-target="#regression">Regression</a>
   <ul class="collapse">
-  <li><a href="#time-bars-5-minutes" id="toc-time-bars-5-minutes" class="nav-link" data-scroll-target="#time-bars-5-minutes">Time Bars (5 minutes)</a></li>
-  <li><a href="#volume-bars-5000-base_qty" id="toc-volume-bars-5000-base_qty" class="nav-link" data-scroll-target="#volume-bars-5000-base_qty">Volume Bars (5000 base_qty)</a></li>
+  <li><a href="#time-bars-5-minutes" id="toc-time-bars-5-minutes" class="nav-link" data-scroll-target="#time-bars-5-minutes">Time bars (5 minutes)</a></li>
+  <li><a href="#volume-bars-5000-base_qty" id="toc-volume-bars-5000-base_qty" class="nav-link" data-scroll-target="#volume-bars-5000-base_qty">Volume bars (5,000 base_qty)</a></li>
   </ul></li>
+  <li><a href="#does-the-impact-actually-persist" id="toc-does-the-impact-actually-persist" class="nav-link" data-scroll-target="#does-the-impact-actually-persist">Does the impact actually persist?</a></li>
+  <li><a href="#is-impact-linear-in-imbalance" id="toc-is-impact-linear-in-imbalance" class="nav-link" data-scroll-target="#is-impact-linear-in-imbalance">Is impact linear in imbalance?</a></li>
+  <li><a href="#filter-sensitivity" id="toc-filter-sensitivity" class="nav-link" data-scroll-target="#filter-sensitivity">Filter sensitivity</a></li>
+  <li><a href="#robustness" id="toc-robustness" class="nav-link" data-scroll-target="#robustness">Robustness</a></li>
   <li><a href="#conclusion" id="toc-conclusion" class="nav-link" data-scroll-target="#conclusion">Conclusion</a></li>
   </ul>
 </nav>
@@ -158,88 +165,273 @@ window.Quarto = {
 </header>
 
 
+<div class="cell">
+<details class="code-fold">
+<summary>Estimation parameters</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb1"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a>SYMBOL       <span class="ot">&lt;-</span> <span class="st">"SOLUSD_PERP"</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>MONTH        <span class="ot">&lt;-</span> <span class="st">"2024-08"</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>BAR_MINUTES  <span class="ot">&lt;-</span> <span class="dv">5</span>      <span class="co"># time-bar length</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>VOL_BAR_SIZE <span class="ot">&lt;-</span> <span class="dv">5000</span>   <span class="co"># volume-bar size, in base_qty (SOL)</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>VOL_WINDOW   <span class="ot">&lt;-</span> <span class="dv">15</span>     <span class="co"># bars in the rolling volatility estimate used for filtering</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>TRIM_Q       <span class="ot">&lt;-</span> <span class="fl">0.95</span>   <span class="co"># quantile at which volatility, volume and imbalance are trimmed</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>N_BINS       <span class="ot">&lt;-</span> <span class="dv">20</span>     <span class="co"># imbalance quantile bins for the conditional mean</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>HAC_LAG      <span class="ot">&lt;-</span> <span class="dv">12</span>     <span class="co"># Newey-West lag (1 hour at 5-minute bars)</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+</div>
 <section id="introduction" class="level1">
 <h1>Introduction</h1>
-<p>To compute trading curves and trading envelopes, market impact and execution costs are needed. We estimate the permanent impact parameter using one month (August 2024) of Binance SOLUSD_PERP perpetual futures data: tick-level <code>trades</code> (individual executions, signed by taker side) and <code>bookTicker</code> (best bid/ask snapshots), from which the mid-price process is reconstructed.</p>
+<p>To compute trading curves and trading envelopes, market impact and execution costs are needed. This notebook estimates the <strong>permanent</strong> impact parameter <span class="math inline">\(k\)</span>; the companion notebook <code>../execution_cost/execution_cost_function.qmd</code> estimates the <em>temporary</em> impact parameters from the same data.</p>
+<p>The mid-price of the asset is modelled by the process</p>
+<p><span class="math display">\[
+d S_t = \sigma \, d W_t + k\, v_t \, dt,
+\]</span></p>
+<p>where <span class="math inline">\(\sigma\)</span> is the arithmetic volatility and <span class="math inline">\(k \ge 0\)</span> is the parameter governing <strong>permanent market impact</strong>. Integrating the drift over a bar gives</p>
+<p><span class="math display">\[
+S_{t+\Delta} - S_t \approx k \sum_i v_i + \text{noise},
+\]</span></p>
+<p>so regressing a bar’s mid-price change (<code>price_diff</code>) on its net signed volume (<code>imbalance</code>) recovers <span class="math inline">\(k\)</span> as the slope. The regression is run without an intercept, since the model carries no drift term.</p>
+<p>The distinction between the two impact parameters is what each one is measured against, and it matters for how the estimate is built:</p>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 33%">
+<col style="width: 33%">
+<col style="width: 33%">
+</colgroup>
+<thead>
+<tr class="header">
+<th></th>
+<th>Permanent impact (<span class="math inline">\(k\)</span>, here)</th>
+<th>Temporary impact (companion notebook)</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>What moves</td>
+<td>the mid-price itself</td>
+<td>the execution price relative to the touch</td>
+</tr>
+<tr class="even">
+<td>Measured over</td>
+<td>a bar of many trades</td>
+<td>a single marketable order</td>
+</tr>
+<tr class="odd">
+<td>Persists?</td>
+<td>yes, by definition — and this is tested below</td>
+<td>no, it decays as the book refills</td>
+</tr>
+</tbody>
+</table>
+<p>Two things are worth stating up front, because they shape the notebook. First, permanence is an <em>assumption</em> in the model above, and an assumption that can be checked: <a href="#does-the-impact-actually-persist">Does the impact actually persist?</a> does so directly. Second, the model asserts that impact is <em>linear</em> in order flow, and <a href="#is-impact-linear-in-imbalance">Is impact linear in imbalance?</a> shows that it is not — which turns out to explain why the estimate of <span class="math inline">\(k\)</span> is sensitive to the cleaning choices.</p>
+</section>
+<section id="data" class="level1">
+<h1>Data</h1>
+<p>We use one month (2024-08) of Binance SOLUSD_PERP perpetual futures data: tick-level <code>trades</code> (individual executions, signed by taker side) and <code>bookTicker</code> (best bid/ask snapshots), from which the mid-price process is reconstructed. Only the three <code>bookTicker</code> columns needed are read, since the raw file is several gigabytes.</p>
 <div class="cell">
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb1"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a>trades <span class="ot">&lt;-</span> <span class="fu">fread</span>(<span class="st">"data/SOLUSD_PERP-trades-2024-08.csv"</span>)</span>
-<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>bookTicker <span class="ot">&lt;-</span> <span class="fu">fread</span>(<span class="st">"data/SOLUSD_PERP-bookTicker-2024-08.csv"</span>)</span>
-<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>trades<span class="sc">$</span>ts <span class="ot">&lt;-</span> <span class="fu">as.POSIXct</span>(</span>
-<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>  trades<span class="sc">$</span>time <span class="sc">/</span> <span class="dv">1000</span>,</span>
-<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">origin =</span> <span class="st">"1970-01-01"</span>,</span>
-<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">tz =</span> <span class="st">"UTC"</span></span>
-<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>)</span>
-<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a><span class="co"># Calculate mid-price</span></span>
-<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>bookTicker[, mid_price <span class="sc">:</span><span class="er">=</span> (best_bid_price <span class="sc">+</span> best_ask_price) <span class="sc">/</span> <span class="dv">2</span>]</span>
-<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a><span class="co"># Order the timestamps</span></span>
-<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a><span class="fu">setorder</span>(trades, time)</span>
-<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a><span class="fu">setorder</span>(bookTicker, transaction_time)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<details class="code-fold">
+<summary>Load trades and bookTicker</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb2"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a>trades <span class="ot">&lt;-</span> <span class="fu">fread</span>(<span class="fu">sprintf</span>(<span class="st">"data/%s-trades-%s.csv"</span>, SYMBOL, MONTH))</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>bookTicker <span class="ot">&lt;-</span> <span class="fu">fread</span>(</span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">sprintf</span>(<span class="st">"data/%s-bookTicker-%s.csv"</span>, SYMBOL, MONTH),</span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">select =</span> <span class="fu">c</span>(<span class="st">"best_bid_price"</span>, <span class="st">"best_ask_price"</span>, <span class="st">"transaction_time"</span>)</span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>trades[, ts <span class="sc">:</span><span class="er">=</span> <span class="fu">as.POSIXct</span>(time <span class="sc">/</span> <span class="dv">1000</span>, <span class="at">origin =</span> <span class="st">"1970-01-01"</span>, <span class="at">tz =</span> <span class="st">"UTC"</span>)]</span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>bookTicker[, mid_price <span class="sc">:</span><span class="er">=</span> (best_bid_price <span class="sc">+</span> best_ask_price) <span class="sc">/</span> <span class="dv">2</span>]</span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a><span class="fu">setorder</span>(trades, time, id)</span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a><span class="fu">setorder</span>(bookTicker, transaction_time)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
 </div>
 <p>For each trade we attach the most recent mid-price observed before it (<code>pre_mid</code>) and the first mid-price observed after it (<code>post_mid</code>), so that the difference between the two isolates the price move associated with that trade (or a bar of trades) net of unrelated mid-price drift.</p>
 <div class="cell">
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb2"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="fu">setkey</span>(bookTicker, transaction_time)</span>
-<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>trades[, pre_mid <span class="sc">:</span><span class="er">=</span> bookTicker[trades, on <span class="ot">=</span> .(transaction_time <span class="sc">&lt;</span> time), mult <span class="ot">=</span> <span class="st">"last"</span>, .(mid_price)]<span class="sc">$</span>mid_price]</span>
-<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>trades[, post_mid <span class="sc">:</span><span class="er">=</span> bookTicker[trades, on <span class="ot">=</span> .(transaction_time <span class="sc">&gt;</span> time), mult <span class="ot">=</span> <span class="st">"first"</span>, .(mid_price)]<span class="sc">$</span>mid_price]</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<details class="code-fold">
+<summary>Non-equi join of trades to the surrounding mid-prices</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb3"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="fu">setkey</span>(bookTicker, transaction_time)</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>trades[, pre_mid  <span class="sc">:</span><span class="er">=</span> bookTicker[trades, on <span class="ot">=</span> .(transaction_time <span class="sc">&lt;</span> time),</span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>                                mult <span class="ot">=</span> <span class="st">"last"</span>,  .(mid_price)]<span class="sc">$</span>mid_price]</span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>trades[, post_mid <span class="sc">:</span><span class="er">=</span> bookTicker[trades, on <span class="ot">=</span> .(transaction_time <span class="sc">&gt;</span> time),</span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>                                mult <span class="ot">=</span> <span class="st">"first"</span>, .(mid_price)]<span class="sc">$</span>mid_price]</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
 </div>
-<p>The mid price of a stock is modeled by a process <span class="math display">\[
-d S_t = \sigma d W_t + k v_t dt
-\]</span> where <span class="math inline">\(\sigma\)</span> is a positive constant called the arithmetic volatility of the asset, and <span class="math inline">\(k\)</span> is the nonegative parameter modeling the magnitude of the <strong>permanent market impact</strong>.</p>
-<p>Integrating the drift term over a bar gives <span class="math inline">\(S_{t+\Delta} - S_t \approx k \sum_i v_i + \text{noise}\)</span>, so regressing a bar’s mid-price change (<code>price_diff</code>) on its net signed volume (<code>imbalance</code>) recovers <span class="math inline">\(k\)</span>, the permanent impact per unit of signed order flow, as the slope.</p>
-<p>Bars are constructed two ways to check that the estimate of <span class="math inline">\(k\)</span> is not an artifact of the sampling scheme: fixed 5-minute time bars, and volume bars that close every 5,000 units of <code>base_qty</code> traded.</p>
+<p>The taker side signs the flow: <code>is_buyer_maker == TRUE</code> means the maker was the buyer, so the taker was <em>selling</em>.</p>
 <div class="cell">
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb3"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a>trades[, sign <span class="sc">:</span><span class="er">=</span> <span class="fu">ifelse</span>(is_buyer_maker, <span class="sc">-</span><span class="dv">1</span>, <span class="dv">1</span>)]</span>
-<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>trades[, sign_base_qty <span class="sc">:</span><span class="er">=</span> base_qty <span class="sc">*</span> sign]</span>
-<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>bars_time <span class="ot">&lt;-</span> trades[, .(</span>
-<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">imbalance =</span> <span class="fu">sum</span>(sign_base_qty),</span>
-<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">base_qty =</span> <span class="fu">sum</span>(base_qty),</span>
-<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">n_trades =</span> .N,</span>
-<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">price_diff =</span> <span class="fu">last</span>(post_mid) <span class="sc">-</span> <span class="fu">first</span>(pre_mid),</span>
-<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">pre_mid_price =</span> <span class="fu">first</span>(pre_mid),</span>
-<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>  <span class="at">post_mid_price =</span> <span class="fu">last</span>(post_mid)</span>
-<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a>), by <span class="ot">=</span> .(<span class="at">bin =</span> <span class="fu">floor_date</span>(ts, <span class="st">"5 minutes"</span>))]</span>
-<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a>bars_time[, std_dev <span class="sc">:</span><span class="er">=</span> <span class="fu">rollapply</span>(pre_mid_price, <span class="at">width =</span> <span class="dv">15</span>, <span class="at">FUN =</span> sd, <span class="at">fill =</span> <span class="cn">NA</span>, <span class="at">align =</span> <span class="st">"right"</span>)]</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<details class="code-fold">
+<summary>Sign the order flow by taker side</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb4"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a>trades[, side_sign  <span class="sc">:</span><span class="er">=</span> <span class="fu">fifelse</span>(is_buyer_maker, <span class="sc">-</span><span class="dv">1</span>, <span class="dv">1</span>)]</span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>trades[, signed_qty <span class="sc">:</span><span class="er">=</span> base_qty <span class="sc">*</span> side_sign]</span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>trades[, cum_base_qty <span class="sc">:</span><span class="er">=</span> <span class="fu">cumsum</span>(base_qty)]</span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a>mean_price <span class="ot">&lt;-</span> trades[, <span class="fu">sum</span>(base_qty <span class="sc">*</span> price) <span class="sc">/</span> <span class="fu">sum</span>(base_qty)]</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+</div>
+</section>
+<section id="bar-construction" class="level1">
+<h1>Bar construction</h1>
+<p>Bars are constructed two ways, to check that the estimate of <span class="math inline">\(k\)</span> is not an artifact of the sampling scheme: fixed 5-minute <strong>time bars</strong>, and <strong>volume bars</strong> that close every 5,000 units of <code>base_qty</code> traded. Both use the same aggregation, so it is written once and called twice.</p>
+<div class="cell">
+<details class="code-fold">
+<summary>Bar aggregation</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb5"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a>make_bars <span class="ot">&lt;-</span> <span class="cf">function</span>(bin_id) {</span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>  b <span class="ot">&lt;-</span> trades[, .(</span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>    <span class="at">imbalance      =</span> <span class="fu">sum</span>(signed_qty),</span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a>    <span class="at">base_qty       =</span> <span class="fu">sum</span>(base_qty),</span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>    <span class="at">n_trades       =</span> .N,</span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a>    <span class="at">pre_mid_price  =</span> <span class="fu">first</span>(pre_mid),</span>
+<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a>    <span class="at">post_mid_price =</span> <span class="fu">last</span>(post_mid)</span>
+<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a>  ), by <span class="ot">=</span> .(<span class="at">bin =</span> bin_id)]</span>
+<span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-10"><a href="#cb5-10" aria-hidden="true" tabindex="-1"></a>  <span class="co"># Explicit ordering: the rolling volatility below assumes chronological order,</span></span>
+<span id="cb5-11"><a href="#cb5-11" aria-hidden="true" tabindex="-1"></a>  <span class="co"># and relying on the grouping to deliver it is an implicit dependency.</span></span>
+<span id="cb5-12"><a href="#cb5-12" aria-hidden="true" tabindex="-1"></a>  <span class="fu">setorder</span>(b, bin)</span>
+<span id="cb5-13"><a href="#cb5-13" aria-hidden="true" tabindex="-1"></a>  b[, price_diff <span class="sc">:</span><span class="er">=</span> post_mid_price <span class="sc">-</span> pre_mid_price]</span>
+<span id="cb5-14"><a href="#cb5-14" aria-hidden="true" tabindex="-1"></a>  b[, std_dev    <span class="sc">:</span><span class="er">=</span> <span class="fu">rollapply</span>(pre_mid_price, VOL_WINDOW, sd, <span class="at">fill =</span> <span class="cn">NA</span>, <span class="at">align =</span> <span class="st">"right"</span>)]</span>
+<span id="cb5-15"><a href="#cb5-15" aria-hidden="true" tabindex="-1"></a>  b[]</span>
+<span id="cb5-16"><a href="#cb5-16" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb5-17"><a href="#cb5-17" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-18"><a href="#cb5-18" aria-hidden="true" tabindex="-1"></a>bars_time_all   <span class="ot">&lt;-</span> <span class="fu">make_bars</span>(<span class="fu">floor_date</span>(trades<span class="sc">$</span>ts, <span class="fu">sprintf</span>(<span class="st">"%d minutes"</span>, BAR_MINUTES)))</span>
+<span id="cb5-19"><a href="#cb5-19" aria-hidden="true" tabindex="-1"></a>bars_volume_all <span class="ot">&lt;-</span> <span class="fu">make_bars</span>(<span class="fu">floor</span>(trades<span class="sc">$</span>cum_base_qty <span class="sc">/</span> VOL_BAR_SIZE))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+</div>
+<p>The 5-minute grid turns out to be complete — every one of the 8,928 bins in the month contains at least one trade, which matters for the decay test below, since that shifts the bar series forward in time and would otherwise skip over gaps.</p>
+</section>
+<section id="data-cleaning" class="level1">
+<h1>Data cleaning</h1>
+<p>Three filters are applied. The top 5% of rolling volatility (<code>std_dev</code>) and the top 5% of traded volume (<code>base_qty</code>) are dropped, to exclude bars dominated by news or liquidation events. The top and bottom 5% of <code>imbalance</code> are dropped to limit outlier influence on the OLS fit.</p>
+<div class="cell">
+<details class="code-fold">
+<summary>Filtering</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb6"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a>apply_filters <span class="ot">&lt;-</span> <span class="cf">function</span>(b, <span class="at">q =</span> TRIM_Q) {</span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a>  cut_sd  <span class="ot">&lt;-</span> <span class="fu">quantile</span>(b<span class="sc">$</span>std_dev,   q,     <span class="at">na.rm =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a>  cut_qty <span class="ot">&lt;-</span> <span class="fu">quantile</span>(b<span class="sc">$</span>base_qty,  q,     <span class="at">na.rm =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a>  cut_hi  <span class="ot">&lt;-</span> <span class="fu">quantile</span>(b<span class="sc">$</span>imbalance, q,     <span class="at">na.rm =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a>  cut_lo  <span class="ot">&lt;-</span> <span class="fu">quantile</span>(b<span class="sc">$</span>imbalance, <span class="dv">1</span> <span class="sc">-</span> q, <span class="at">na.rm =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a>  b[<span class="sc">!</span><span class="fu">is.na</span>(std_dev) <span class="sc">&amp;</span> std_dev <span class="sc">&lt;=</span> cut_sd <span class="sc">&amp;</span> base_qty <span class="sc">&lt;=</span> cut_qty <span class="sc">&amp;</span></span>
+<span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a>      imbalance <span class="sc">&lt;=</span> cut_hi <span class="sc">&amp;</span> imbalance <span class="sc">&gt;=</span> cut_lo]</span>
+<span id="cb6-8"><a href="#cb6-8" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb6-9"><a href="#cb6-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-10"><a href="#cb6-10" aria-hidden="true" tabindex="-1"></a><span class="co"># Note the separate names: apply_filters is deliberately not applied in place.</span></span>
+<span id="cb6-11"><a href="#cb6-11" aria-hidden="true" tabindex="-1"></a><span class="co"># Overwriting the source table would make re-running this chunk re-trim an</span></span>
+<span id="cb6-12"><a href="#cb6-12" aria-hidden="true" tabindex="-1"></a><span class="co"># already-trimmed sample, with the quantiles recomputed on the smaller set.</span></span>
+<span id="cb6-13"><a href="#cb6-13" aria-hidden="true" tabindex="-1"></a>bars_time   <span class="ot">&lt;-</span> <span class="fu">apply_filters</span>(bars_time_all)</span>
+<span id="cb6-14"><a href="#cb6-14" aria-hidden="true" tabindex="-1"></a>bars_volume <span class="ot">&lt;-</span> <span class="fu">apply_filters</span>(bars_volume_all)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+</div>
+<div class="callout callout-style-default callout-note callout-titled">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Note</span>A filter that was doing nothing
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>An earlier version of this notebook also dropped bars with <code>abs(imbalance) &lt;= 1</code>, on the grounds that they carry little order-flow information. On this sample that removed 12 bars out of 7,681 and changed <span class="math inline">\(k\)</span> in the fourth significant figure, so it has been removed. (The threshold was also described as “roughly $100 notional”; 1 SOL was about $143 over this period.)</p>
+</div>
 </div>
 <div class="cell">
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb4"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Volume bars: group trades into buckets of 5000 base_qty traded</span></span>
-<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>trades[, cum_base_qty <span class="sc">:</span><span class="er">=</span> <span class="fu">cumsum</span>(base_qty)]</span>
-<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>trades[, vol_bin <span class="sc">:</span><span class="er">=</span> <span class="fu">floor</span>(cum_base_qty <span class="sc">/</span> <span class="dv">5000</span>)]</span>
-<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>bars_volume <span class="ot">&lt;-</span> trades[, .(</span>
-<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">imbalance =</span> <span class="fu">sum</span>(sign_base_qty),</span>
-<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">base_qty =</span> <span class="fu">sum</span>(base_qty),</span>
-<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">n_trades =</span> .N,</span>
-<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">price_diff =</span> <span class="fu">last</span>(post_mid) <span class="sc">-</span> <span class="fu">first</span>(pre_mid),</span>
-<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a>  <span class="at">pre_mid_price =</span> <span class="fu">first</span>(pre_mid),</span>
-<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a>  <span class="at">post_mid_price =</span> <span class="fu">last</span>(post_mid)</span>
-<span id="cb4-11"><a href="#cb4-11" aria-hidden="true" tabindex="-1"></a>), by <span class="ot">=</span> .(<span class="at">bin =</span> vol_bin)]</span>
-<span id="cb4-12"><a href="#cb4-12" aria-hidden="true" tabindex="-1"></a>bars_volume[, std_dev <span class="sc">:</span><span class="er">=</span> <span class="fu">rollapply</span>(pre_mid_price, <span class="at">width =</span> <span class="dv">15</span>, <span class="at">FUN =</span> sd, <span class="at">fill =</span> <span class="cn">NA</span>, <span class="at">align =</span> <span class="st">"right"</span>)]</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<details class="code-fold">
+<summary>Cleaning waterfall</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb7"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a>waterfall <span class="ot">&lt;-</span> <span class="cf">function</span>(b, label) {</span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a>  cut_sd  <span class="ot">&lt;-</span> <span class="fu">quantile</span>(b<span class="sc">$</span>std_dev,   TRIM_Q,     <span class="at">na.rm =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a>  cut_qty <span class="ot">&lt;-</span> <span class="fu">quantile</span>(b<span class="sc">$</span>base_qty,  TRIM_Q,     <span class="at">na.rm =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a>  cut_hi  <span class="ot">&lt;-</span> <span class="fu">quantile</span>(b<span class="sc">$</span>imbalance, TRIM_Q,     <span class="at">na.rm =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb7-5"><a href="#cb7-5" aria-hidden="true" tabindex="-1"></a>  cut_lo  <span class="ot">&lt;-</span> <span class="fu">quantile</span>(b<span class="sc">$</span>imbalance, <span class="dv">1</span> <span class="sc">-</span> TRIM_Q, <span class="at">na.rm =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb7-6"><a href="#cb7-6" aria-hidden="true" tabindex="-1"></a>  d_sd  <span class="ot">&lt;-</span> b[<span class="fu">is.na</span>(std_dev) <span class="sc">|</span> std_dev <span class="sc">&gt;</span> cut_sd, .N]</span>
+<span id="cb7-7"><a href="#cb7-7" aria-hidden="true" tabindex="-1"></a>  keep1 <span class="ot">&lt;-</span> b[<span class="sc">!</span><span class="fu">is.na</span>(std_dev) <span class="sc">&amp;</span> std_dev <span class="sc">&lt;=</span> cut_sd]</span>
+<span id="cb7-8"><a href="#cb7-8" aria-hidden="true" tabindex="-1"></a>  d_qty <span class="ot">&lt;-</span> keep1[base_qty <span class="sc">&gt;</span> cut_qty, .N]</span>
+<span id="cb7-9"><a href="#cb7-9" aria-hidden="true" tabindex="-1"></a>  keep2 <span class="ot">&lt;-</span> keep1[base_qty <span class="sc">&lt;=</span> cut_qty]</span>
+<span id="cb7-10"><a href="#cb7-10" aria-hidden="true" tabindex="-1"></a>  d_imb <span class="ot">&lt;-</span> keep2[imbalance <span class="sc">&gt;</span> cut_hi <span class="sc">|</span> imbalance <span class="sc">&lt;</span> cut_lo, .N]</span>
+<span id="cb7-11"><a href="#cb7-11" aria-hidden="true" tabindex="-1"></a>  <span class="fu">data.table</span>(<span class="at">Sample =</span> label, <span class="at">Constructed =</span> <span class="fu">nrow</span>(b),</span>
+<span id="cb7-12"><a href="#cb7-12" aria-hidden="true" tabindex="-1"></a>             <span class="st">`</span><span class="at">Volatility</span><span class="st">`</span> <span class="ot">=</span> <span class="sc">-</span>d_sd, <span class="st">`</span><span class="at">Volume</span><span class="st">`</span> <span class="ot">=</span> <span class="sc">-</span>d_qty, <span class="st">`</span><span class="at">Imbalance tails</span><span class="st">`</span> <span class="ot">=</span> <span class="sc">-</span>d_imb,</span>
+<span id="cb7-13"><a href="#cb7-13" aria-hidden="true" tabindex="-1"></a>             <span class="at">Retained =</span> <span class="fu">nrow</span>(b) <span class="sc">-</span> d_sd <span class="sc">-</span> d_qty <span class="sc">-</span> d_imb)</span>
+<span id="cb7-14"><a href="#cb7-14" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb7-15"><a href="#cb7-15" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-16"><a href="#cb7-16" aria-hidden="true" tabindex="-1"></a>knitr<span class="sc">::</span><span class="fu">kable</span>(</span>
+<span id="cb7-17"><a href="#cb7-17" aria-hidden="true" tabindex="-1"></a>  <span class="fu">rbind</span>(<span class="fu">waterfall</span>(bars_time_all,   <span class="fu">sprintf</span>(<span class="st">"%d-minute bars"</span>, BAR_MINUTES)),</span>
+<span id="cb7-18"><a href="#cb7-18" aria-hidden="true" tabindex="-1"></a>        <span class="fu">waterfall</span>(bars_volume_all, <span class="fu">sprintf</span>(<span class="st">"%s-SOL volume bars"</span>, <span class="fu">comma</span>(VOL_BAR_SIZE)))),</span>
+<span id="cb7-19"><a href="#cb7-19" aria-hidden="true" tabindex="-1"></a>  <span class="at">format.args =</span> <span class="fu">list</span>(<span class="at">big.mark =</span> <span class="st">","</span>),</span>
+<span id="cb7-20"><a href="#cb7-20" aria-hidden="true" tabindex="-1"></a>  <span class="at">caption =</span> <span class="st">"Bars removed by each cleaning step."</span></span>
+<span id="cb7-21"><a href="#cb7-21" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output-display">
+<table class="caption-top table table-sm table-striped small">
+<caption>Bars removed by each cleaning step.</caption>
+<colgroup>
+<col style="width: 28%">
+<col style="width: 15%">
+<col style="width: 14%">
+<col style="width: 9%">
+<col style="width: 20%">
+<col style="width: 11%">
+</colgroup>
+<thead>
+<tr class="header">
+<th style="text-align: left;">Sample</th>
+<th style="text-align: right;">Constructed</th>
+<th style="text-align: right;">Volatility</th>
+<th style="text-align: right;">Volume</th>
+<th style="text-align: right;">Imbalance tails</th>
+<th style="text-align: right;">Retained</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;">5-minute bars</td>
+<td style="text-align: right;">8,928</td>
+<td style="text-align: right;">-460</td>
+<td style="text-align: right;">-225</td>
+<td style="text-align: right;">-562</td>
+<td style="text-align: right;">7,681</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">5,000-SOL volume bars</td>
+<td style="text-align: right;">10,609</td>
+<td style="text-align: right;">-544</td>
+<td style="text-align: right;">-499</td>
+<td style="text-align: right;">-895</td>
+<td style="text-align: right;">8,671</td>
+</tr>
+</tbody>
+</table>
 </div>
-<p>The top 5% of rolling volatility (<code>std_dev</code>) and top 5% of traded volume (<code>base_qty</code>) are dropped to exclude bars dominated by news or liquidation events, the top and bottom 5% of <code>imbalance</code> are dropped to limit outlier influence on the OLS fit, and bars with <code>abs(imbalance) &lt;= 1</code> (roughly below $100 notional) are dropped since they carry little order-flow information.</p>
-<div class="cell">
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb5"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a>filter_bars <span class="ot">&lt;-</span> <span class="cf">function</span>(bars) {</span>
-<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>  q_std_dev <span class="ot">&lt;-</span> <span class="fu">quantile</span>(bars<span class="sc">$</span>std_dev, <span class="fl">0.95</span>, <span class="at">na.rm =</span> <span class="cn">TRUE</span>)</span>
-<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>  q_base_qty <span class="ot">&lt;-</span> <span class="fu">quantile</span>(bars<span class="sc">$</span>base_qty, <span class="fl">0.95</span>, <span class="at">na.rm =</span> <span class="cn">TRUE</span>)</span>
-<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a>  q_imbalance_high <span class="ot">&lt;-</span> <span class="fu">quantile</span>(bars<span class="sc">$</span>imbalance, <span class="fl">0.95</span>, <span class="at">na.rm =</span> <span class="cn">TRUE</span>)</span>
-<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>  q_imbalance_low <span class="ot">&lt;-</span> <span class="fu">quantile</span>(bars<span class="sc">$</span>imbalance, <span class="fl">0.05</span>, <span class="at">na.rm =</span> <span class="cn">TRUE</span>)</span>
-<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a>  bars[</span>
-<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a>    std_dev <span class="sc">&lt;=</span> q_std_dev <span class="sc">&amp;</span></span>
-<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a>      base_qty <span class="sc">&lt;=</span> q_base_qty <span class="sc">&amp;</span></span>
-<span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a>      imbalance <span class="sc">&lt;=</span> q_imbalance_high <span class="sc">&amp;</span></span>
-<span id="cb5-10"><a href="#cb5-10" aria-hidden="true" tabindex="-1"></a>      imbalance <span class="sc">&gt;=</span> q_imbalance_low <span class="sc">&amp;</span></span>
-<span id="cb5-11"><a href="#cb5-11" aria-hidden="true" tabindex="-1"></a>      <span class="fu">abs</span>(imbalance) <span class="sc">&gt;</span> <span class="dv">1</span></span>
-<span id="cb5-12"><a href="#cb5-12" aria-hidden="true" tabindex="-1"></a>  ]</span>
-<span id="cb5-13"><a href="#cb5-13" aria-hidden="true" tabindex="-1"></a>}</span>
-<span id="cb5-14"><a href="#cb5-14" aria-hidden="true" tabindex="-1"></a>bars_time <span class="ot">&lt;-</span> <span class="fu">filter_bars</span>(bars_time)</span>
-<span id="cb5-15"><a href="#cb5-15" aria-hidden="true" tabindex="-1"></a>bars_volume <span class="ot">&lt;-</span> <span class="fu">filter_bars</span>(bars_volume)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </div>
 </section>
 <section id="regression" class="level1">
 <h1>Regression</h1>
-<p>The slope on <code>imbalance</code> estimates <span class="math inline">\(k\)</span>; its significance and the <span class="math inline">\(R^2\)</span> indicate how much of the bar-level mid-price change is explained by signed order flow alone.</p>
-<section id="time-bars-5-minutes" class="level2">
-<h2 class="anchored" data-anchor-id="time-bars-5-minutes">Time Bars (5 minutes)</h2>
+<p>The slope on <code>imbalance</code> estimates <span class="math inline">\(k\)</span>. Because bars overlap in information and order flow is autocorrelated, OLS standard errors understate the true uncertainty, so <strong>Newey–West (HAC) standard errors</strong> are reported alongside them, at a lag of 12 bars.</p>
 <div class="cell">
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb6"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a>fitted_time <span class="ot">&lt;-</span> <span class="fu">lm</span>(price_diff <span class="sc">~</span> imbalance <span class="sc">+</span> <span class="dv">0</span>, bars_time)</span>
-<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a><span class="fu">summary</span>(fitted_time)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<details class="code-fold">
+<summary>Newey-West standard errors</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb8"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Hand-rolled rather than via sandwich::NeweyWest, to avoid a dependency for</span></span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a><span class="co"># what is a dozen lines: Bartlett-weighted sum of autocovariances of the score.</span></span>
+<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a>nw_se <span class="ot">&lt;-</span> <span class="cf">function</span>(m, <span class="at">L =</span> HAC_LAG) {</span>
+<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a>  X <span class="ot">&lt;-</span> <span class="fu">model.matrix</span>(m)</span>
+<span id="cb8-5"><a href="#cb8-5" aria-hidden="true" tabindex="-1"></a>  u <span class="ot">&lt;-</span> <span class="fu">as.vector</span>(<span class="fu">residuals</span>(m))</span>
+<span id="cb8-6"><a href="#cb8-6" aria-hidden="true" tabindex="-1"></a>  n <span class="ot">&lt;-</span> <span class="fu">nrow</span>(X)</span>
+<span id="cb8-7"><a href="#cb8-7" aria-hidden="true" tabindex="-1"></a>  bread <span class="ot">&lt;-</span> <span class="fu">solve</span>(<span class="fu">crossprod</span>(X))</span>
+<span id="cb8-8"><a href="#cb8-8" aria-hidden="true" tabindex="-1"></a>  meat  <span class="ot">&lt;-</span> <span class="fu">crossprod</span>(X <span class="sc">*</span> u)</span>
+<span id="cb8-9"><a href="#cb8-9" aria-hidden="true" tabindex="-1"></a>  <span class="cf">for</span> (l <span class="cf">in</span> <span class="fu">seq_len</span>(L)) {</span>
+<span id="cb8-10"><a href="#cb8-10" aria-hidden="true" tabindex="-1"></a>    w <span class="ot">&lt;-</span> <span class="dv">1</span> <span class="sc">-</span> l <span class="sc">/</span> (L <span class="sc">+</span> <span class="dv">1</span>)</span>
+<span id="cb8-11"><a href="#cb8-11" aria-hidden="true" tabindex="-1"></a>    G <span class="ot">&lt;-</span> <span class="fu">crossprod</span>(X[(l <span class="sc">+</span> <span class="dv">1</span>)<span class="sc">:</span>n, , <span class="at">drop =</span> <span class="cn">FALSE</span>] <span class="sc">*</span> u[(l <span class="sc">+</span> <span class="dv">1</span>)<span class="sc">:</span>n],</span>
+<span id="cb8-12"><a href="#cb8-12" aria-hidden="true" tabindex="-1"></a>                   X[<span class="dv">1</span><span class="sc">:</span>(n <span class="sc">-</span> l), , <span class="at">drop =</span> <span class="cn">FALSE</span>] <span class="sc">*</span> u[<span class="dv">1</span><span class="sc">:</span>(n <span class="sc">-</span> l)])</span>
+<span id="cb8-13"><a href="#cb8-13" aria-hidden="true" tabindex="-1"></a>    meat <span class="ot">&lt;-</span> meat <span class="sc">+</span> w <span class="sc">*</span> (G <span class="sc">+</span> <span class="fu">t</span>(G))</span>
+<span id="cb8-14"><a href="#cb8-14" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb8-15"><a href="#cb8-15" aria-hidden="true" tabindex="-1"></a>  <span class="fu">sqrt</span>(<span class="fu">diag</span>(bread <span class="sc">%*%</span> meat <span class="sc">%*%</span> bread))</span>
+<span id="cb8-16"><a href="#cb8-16" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+</div>
+<section id="time-bars-5-minutes" class="level2">
+<h2 class="anchored" data-anchor-id="time-bars-5-minutes">Time bars (5 minutes)</h2>
+<div class="cell">
+<details class="code-fold">
+<summary>Fit on time bars</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb9"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a>fit_time <span class="ot">&lt;-</span> <span class="fu">lm</span>(price_diff <span class="sc">~</span> imbalance <span class="sc">+</span> <span class="dv">0</span>, bars_time)</span>
+<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a><span class="fu">summary</span>(fit_time)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
 <div class="cell-output cell-output-stdout">
 <pre><code>
 Call:
@@ -247,43 +439,28 @@ lm(formula = price_diff ~ imbalance + 0, data = bars_time)
 
 Residuals:
      Min       1Q   Median       3Q      Max 
--2.60061 -0.14075  0.01043  0.17450  1.87353 
+-2.60061 -0.14034  0.01043  0.17459  1.87353 
 
 Coefficients:
            Estimate Std. Error t value Pr(&gt;|t|)    
-imbalance 1.502e-04  3.394e-06   44.26   &lt;2e-16 ***
+imbalance 1.502e-04  3.393e-06   44.27   &lt;2e-16 ***
 ---
 Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
 
-Residual standard error: 0.2956 on 7668 degrees of freedom
-Multiple R-squared:  0.2035,    Adjusted R-squared:  0.2034 
-F-statistic:  1959 on 1 and 7668 DF,  p-value: &lt; 2.2e-16</code></pre>
-</div>
-</div>
-<div class="cell">
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb8"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="fu">ggplot</span>(bars_time, <span class="fu">aes</span>(<span class="at">x =</span> imbalance, <span class="at">y =</span> price_diff)) <span class="sc">+</span></span>
-<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_point</span>(<span class="at">alpha =</span> <span class="fl">0.3</span>) <span class="sc">+</span></span>
-<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_smooth</span>(<span class="at">method =</span> <span class="st">"lm"</span>, <span class="at">color =</span> <span class="st">"red"</span>, <span class="at">se =</span> <span class="cn">TRUE</span>) <span class="sc">+</span></span>
-<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(<span class="at">title =</span> <span class="st">"Price Diff vs Imbalance (Time Bars)"</span>,</span>
-<span id="cb8-5"><a href="#cb8-5" aria-hidden="true" tabindex="-1"></a>       <span class="at">x =</span> <span class="st">"Imbalance"</span>, <span class="at">y =</span> <span class="st">"Price Diff"</span>) <span class="sc">+</span></span>
-<span id="cb8-6"><a href="#cb8-6" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_minimal</span>()</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
-<div class="cell-output cell-output-stderr">
-<pre><code>`geom_smooth()` using formula = 'y ~ x'</code></pre>
-</div>
-<div class="cell-output-display">
-<div>
-<figure class="figure">
-<p><img src="estimation_of_market_impact_files/figure-html/unnamed-chunk-8-1.png" class="img-fluid figure-img" width="672"></p>
-</figure>
-</div>
+Residual standard error: 0.2955 on 7680 degrees of freedom
+Multiple R-squared:  0.2033,    Adjusted R-squared:  0.2032 
+F-statistic:  1960 on 1 and 7680 DF,  p-value: &lt; 2.2e-16</code></pre>
 </div>
 </div>
 </section>
 <section id="volume-bars-5000-base_qty" class="level2">
-<h2 class="anchored" data-anchor-id="volume-bars-5000-base_qty">Volume Bars (5000 base_qty)</h2>
+<h2 class="anchored" data-anchor-id="volume-bars-5000-base_qty">Volume bars (5,000 base_qty)</h2>
 <div class="cell">
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb10"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a>fitted_volume <span class="ot">&lt;-</span> <span class="fu">lm</span>(price_diff <span class="sc">~</span> imbalance <span class="sc">+</span> <span class="dv">0</span>, bars_volume)</span>
-<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a><span class="fu">summary</span>(fitted_volume)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<details class="code-fold">
+<summary>Fit on volume bars</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb11"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a>fit_volume <span class="ot">&lt;-</span> <span class="fu">lm</span>(price_diff <span class="sc">~</span> imbalance <span class="sc">+</span> <span class="dv">0</span>, bars_volume)</span>
+<span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a><span class="fu">summary</span>(fit_volume)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
 <div class="cell-output cell-output-stdout">
 <pre><code>
 Call:
@@ -291,42 +468,594 @@ lm(formula = price_diff ~ imbalance + 0, data = bars_volume)
 
 Residuals:
      Min       1Q   Median       3Q      Max 
--1.46156 -0.21634  0.02968  0.28198  1.62828 
+-1.46156 -0.21631  0.02975  0.28201  1.62828 
 
 Coefficients:
            Estimate Std. Error t value Pr(&gt;|t|)    
-imbalance 1.678e-04  3.298e-06    50.9   &lt;2e-16 ***
+imbalance 1.678e-04  3.297e-06    50.9   &lt;2e-16 ***
 ---
 Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
 
-Residual standard error: 0.3799 on 8667 degrees of freedom
+Residual standard error: 0.3799 on 8670 degrees of freedom
 Multiple R-squared:  0.2301,    Adjusted R-squared:   0.23 
-F-statistic:  2590 on 1 and 8667 DF,  p-value: &lt; 2.2e-16</code></pre>
+F-statistic:  2591 on 1 and 8670 DF,  p-value: &lt; 2.2e-16</code></pre>
 </div>
 </div>
 <div class="cell">
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb12"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="fu">ggplot</span>(bars_volume, <span class="fu">aes</span>(<span class="at">x =</span> imbalance, <span class="at">y =</span> price_diff)) <span class="sc">+</span></span>
-<span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_point</span>(<span class="at">alpha =</span> <span class="fl">0.3</span>) <span class="sc">+</span></span>
-<span id="cb12-3"><a href="#cb12-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_smooth</span>(<span class="at">method =</span> <span class="st">"lm"</span>, <span class="at">color =</span> <span class="st">"red"</span>, <span class="at">se =</span> <span class="cn">TRUE</span>) <span class="sc">+</span></span>
-<span id="cb12-4"><a href="#cb12-4" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(<span class="at">title =</span> <span class="st">"Price Diff vs Imbalance (Volume Bars)"</span>,</span>
-<span id="cb12-5"><a href="#cb12-5" aria-hidden="true" tabindex="-1"></a>       <span class="at">x =</span> <span class="st">"Imbalance"</span>, <span class="at">y =</span> <span class="st">"Price Diff"</span>) <span class="sc">+</span></span>
-<span id="cb12-6"><a href="#cb12-6" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_minimal</span>()</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
-<div class="cell-output cell-output-stderr">
-<pre><code>`geom_smooth()` using formula = 'y ~ x'</code></pre>
-</div>
+<details class="code-fold">
+<summary>Both specifications with HAC errors</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb13"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a>fit_summary <span class="ot">&lt;-</span> <span class="fu">rbindlist</span>(<span class="fu">list</span>(</span>
+<span id="cb13-2"><a href="#cb13-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">data.table</span>(<span class="at">Bars =</span> <span class="fu">sprintf</span>(<span class="st">"%d-minute time bars"</span>, BAR_MINUTES), <span class="at">n =</span> <span class="fu">nrow</span>(bars_time),</span>
+<span id="cb13-3"><a href="#cb13-3" aria-hidden="true" tabindex="-1"></a>             <span class="at">k =</span> <span class="fu">coef</span>(fit_time)[[<span class="dv">1</span>]], <span class="at">ols =</span> <span class="fu">summary</span>(fit_time)<span class="sc">$</span>coef[<span class="dv">1</span>, <span class="dv">2</span>],</span>
+<span id="cb13-4"><a href="#cb13-4" aria-hidden="true" tabindex="-1"></a>             <span class="at">hac =</span> <span class="fu">nw_se</span>(fit_time)[[<span class="dv">1</span>]], <span class="at">R2 =</span> <span class="fu">summary</span>(fit_time)<span class="sc">$</span>r.squared),</span>
+<span id="cb13-5"><a href="#cb13-5" aria-hidden="true" tabindex="-1"></a>  <span class="fu">data.table</span>(<span class="at">Bars =</span> <span class="fu">sprintf</span>(<span class="st">"%s-SOL volume bars"</span>, <span class="fu">comma</span>(VOL_BAR_SIZE)), <span class="at">n =</span> <span class="fu">nrow</span>(bars_volume),</span>
+<span id="cb13-6"><a href="#cb13-6" aria-hidden="true" tabindex="-1"></a>             <span class="at">k =</span> <span class="fu">coef</span>(fit_volume)[[<span class="dv">1</span>]], <span class="at">ols =</span> <span class="fu">summary</span>(fit_volume)<span class="sc">$</span>coef[<span class="dv">1</span>, <span class="dv">2</span>],</span>
+<span id="cb13-7"><a href="#cb13-7" aria-hidden="true" tabindex="-1"></a>             <span class="at">hac =</span> <span class="fu">nw_se</span>(fit_volume)[[<span class="dv">1</span>]], <span class="at">R2 =</span> <span class="fu">summary</span>(fit_volume)<span class="sc">$</span>r.squared)</span>
+<span id="cb13-8"><a href="#cb13-8" aria-hidden="true" tabindex="-1"></a>))</span>
+<span id="cb13-9"><a href="#cb13-9" aria-hidden="true" tabindex="-1"></a>fit_summary[, t_hac <span class="sc">:</span><span class="er">=</span> k <span class="sc">/</span> hac]</span>
+<span id="cb13-10"><a href="#cb13-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb13-11"><a href="#cb13-11" aria-hidden="true" tabindex="-1"></a>knitr<span class="sc">::</span><span class="fu">kable</span>(fit_summary, <span class="at">digits =</span> <span class="fu">c</span>(<span class="dv">0</span>, <span class="dv">0</span>, <span class="dv">8</span>, <span class="dv">8</span>, <span class="dv">8</span>, <span class="dv">3</span>, <span class="dv">1</span>),</span>
+<span id="cb13-12"><a href="#cb13-12" aria-hidden="true" tabindex="-1"></a>             <span class="at">format.args =</span> <span class="fu">list</span>(<span class="at">big.mark =</span> <span class="st">","</span>),</span>
+<span id="cb13-13"><a href="#cb13-13" aria-hidden="true" tabindex="-1"></a>             <span class="at">col.names =</span> <span class="fu">c</span>(<span class="st">"Bars"</span>, <span class="st">"n"</span>, <span class="st">"$</span><span class="sc">\\</span><span class="st">hat k$"</span>, <span class="st">"OLS s.e."</span>, <span class="st">"HAC s.e."</span>, <span class="st">"$R^2$"</span>, <span class="st">"$t$ (HAC)"</span>),</span>
+<span id="cb13-14"><a href="#cb13-14" aria-hidden="true" tabindex="-1"></a>             <span class="at">caption =</span> <span class="st">"Permanent impact coefficient under both bar constructions."</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
 <div class="cell-output-display">
-<div>
-<figure class="figure">
-<p><img src="estimation_of_market_impact_files/figure-html/unnamed-chunk-10-1.png" class="img-fluid figure-img" width="672"></p>
+<table class="caption-top table table-sm table-striped small">
+<caption>Permanent impact coefficient under both bar constructions.</caption>
+<colgroup>
+<col style="width: 30%">
+<col style="width: 8%">
+<col style="width: 15%">
+<col style="width: 12%">
+<col style="width: 12%">
+<col style="width: 8%">
+<col style="width: 13%">
+</colgroup>
+<thead>
+<tr class="header">
+<th style="text-align: left;">Bars</th>
+<th style="text-align: right;">n</th>
+<th style="text-align: right;"><span class="math inline">\(\hat k\)</span></th>
+<th style="text-align: right;">OLS s.e.</th>
+<th style="text-align: right;">HAC s.e.</th>
+<th style="text-align: right;"><span class="math inline">\(R^2\)</span></th>
+<th style="text-align: right;"><span class="math inline">\(t\)</span> (HAC)</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;">5-minute time bars</td>
+<td style="text-align: right;">7,681</td>
+<td style="text-align: right;">0.00015022</td>
+<td style="text-align: right;">3.39e-06</td>
+<td style="text-align: right;">4.54e-06</td>
+<td style="text-align: right;">0.203</td>
+<td style="text-align: right;">33.1</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">5,000-SOL volume bars</td>
+<td style="text-align: right;">8,671</td>
+<td style="text-align: right;">0.00016784</td>
+<td style="text-align: right;">3.30e-06</td>
+<td style="text-align: right;">3.73e-06</td>
+<td style="text-align: right;">0.230</td>
+<td style="text-align: right;">45.1</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<p>The HAC correction widens the standard error by about 34% on time bars. It does not change any conclusion — <span class="math inline">\(t\)</span> is still above 30 — but it is the honest figure for overlapping bar data.</p>
+<div class="cell">
+<details class="code-fold">
+<summary>Plot both fits</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb14"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a>scatter_data <span class="ot">&lt;-</span> <span class="fu">rbind</span>(</span>
+<span id="cb14-2"><a href="#cb14-2" aria-hidden="true" tabindex="-1"></a>  bars_time[,   .(imbalance, price_diff, <span class="at">Bars =</span> <span class="fu">sprintf</span>(<span class="st">"%d-minute time bars"</span>, BAR_MINUTES))],</span>
+<span id="cb14-3"><a href="#cb14-3" aria-hidden="true" tabindex="-1"></a>  bars_volume[, .(imbalance, price_diff, <span class="at">Bars =</span> <span class="fu">sprintf</span>(<span class="st">"%s-SOL volume bars"</span>, <span class="fu">comma</span>(VOL_BAR_SIZE)))]</span>
+<span id="cb14-4"><a href="#cb14-4" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb14-5"><a href="#cb14-5" aria-hidden="true" tabindex="-1"></a>fit_lines <span class="ot">&lt;-</span> <span class="fu">data.table</span>(</span>
+<span id="cb14-6"><a href="#cb14-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">Bars  =</span> <span class="fu">c</span>(<span class="fu">sprintf</span>(<span class="st">"%d-minute time bars"</span>, BAR_MINUTES),</span>
+<span id="cb14-7"><a href="#cb14-7" aria-hidden="true" tabindex="-1"></a>            <span class="fu">sprintf</span>(<span class="st">"%s-SOL volume bars"</span>, <span class="fu">comma</span>(VOL_BAR_SIZE))),</span>
+<span id="cb14-8"><a href="#cb14-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">slope =</span> <span class="fu">c</span>(<span class="fu">coef</span>(fit_time)[[<span class="dv">1</span>]], <span class="fu">coef</span>(fit_volume)[[<span class="dv">1</span>]])</span>
+<span id="cb14-9"><a href="#cb14-9" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb14-10"><a href="#cb14-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-11"><a href="#cb14-11" aria-hidden="true" tabindex="-1"></a><span class="fu">ggplot</span>(scatter_data, <span class="fu">aes</span>(<span class="at">x =</span> imbalance, <span class="at">y =</span> price_diff)) <span class="sc">+</span></span>
+<span id="cb14-12"><a href="#cb14-12" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_point</span>(<span class="at">alpha =</span> <span class="fl">0.12</span>, <span class="at">size =</span> <span class="fl">0.7</span>, <span class="at">colour =</span> col_data) <span class="sc">+</span></span>
+<span id="cb14-13"><a href="#cb14-13" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_abline</span>(<span class="at">data =</span> fit_lines, <span class="fu">aes</span>(<span class="at">slope =</span> slope, <span class="at">intercept =</span> <span class="dv">0</span>),</span>
+<span id="cb14-14"><a href="#cb14-14" aria-hidden="true" tabindex="-1"></a>              <span class="at">colour =</span> col_model, <span class="at">linewidth =</span> <span class="fl">0.9</span>) <span class="sc">+</span></span>
+<span id="cb14-15"><a href="#cb14-15" aria-hidden="true" tabindex="-1"></a>  <span class="fu">facet_wrap</span>(<span class="sc">~</span> Bars, <span class="at">scales =</span> <span class="st">"free_x"</span>) <span class="sc">+</span></span>
+<span id="cb14-16"><a href="#cb14-16" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_x_continuous</span>(<span class="at">labels =</span> comma) <span class="sc">+</span></span>
+<span id="cb14-17"><a href="#cb14-17" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(</span>
+<span id="cb14-18"><a href="#cb14-18" aria-hidden="true" tabindex="-1"></a>    <span class="at">title    =</span> <span class="st">"Mid-price change against order-flow imbalance"</span>,</span>
+<span id="cb14-19"><a href="#cb14-19" aria-hidden="true" tabindex="-1"></a>    <span class="at">subtitle =</span> <span class="fu">sprintf</span>(<span class="st">"%s, %s — line is the fitted slope, k"</span>, SYMBOL, MONTH),</span>
+<span id="cb14-20"><a href="#cb14-20" aria-hidden="true" tabindex="-1"></a>    <span class="at">x =</span> <span class="st">"Imbalance (net signed SOL)"</span>, <span class="at">y =</span> <span class="st">"Mid-price change (USD)"</span></span>
+<span id="cb14-21"><a href="#cb14-21" aria-hidden="true" tabindex="-1"></a>  )</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output-display">
+<div id="fig-fits" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-fits-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<img src="estimation_of_market_impact_files/figure-html/fig-fits-1.png" class="img-fluid figure-img" width="768">
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-fits-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;1: Bar-level mid-price change against net signed volume, under both bar constructions. The line is the fitted no-intercept regression.
+</figcaption>
 </figure>
 </div>
 </div>
 </div>
 </section>
 </section>
+<section id="does-the-impact-actually-persist" class="level1">
+<h1>Does the impact actually persist?</h1>
+<p>The model <em>assumes</em> the price move is permanent, but nothing so far tests it. If the measured move were largely temporary — the book being pushed aside and then refilling — it would decay once the bar ends, and <span class="math inline">\(k\)</span> would be an overstatement.</p>
+<p>The test is direct: keep the same regressor, and push the point at which the price is measured further into the future. <code>price_diff</code> is replaced by <span class="math inline">\(S_{t+h} - S_t\)</span> for increasing <span class="math inline">\(h\)</span>, with <span class="math inline">\(S_t\)</span> the bar’s arrival mid. A genuinely permanent impact leaves the slope flat; a decaying one does not.</p>
+<div class="cell">
+<details class="code-fold">
+<summary>Impact decay across measurement horizons</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb15"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a>horizons <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="dv">0</span>, <span class="dv">1</span>, <span class="dv">2</span>, <span class="dv">3</span>, <span class="dv">6</span>, <span class="dv">12</span>)   <span class="co"># in bars</span></span>
+<span id="cb15-2"><a href="#cb15-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb15-3"><a href="#cb15-3" aria-hidden="true" tabindex="-1"></a>decay <span class="ot">&lt;-</span> <span class="fu">rbindlist</span>(<span class="fu">lapply</span>(horizons, <span class="cf">function</span>(h) {</span>
+<span id="cb15-4"><a href="#cb15-4" aria-hidden="true" tabindex="-1"></a>  b <span class="ot">&lt;-</span> <span class="fu">copy</span>(bars_time_all)</span>
+<span id="cb15-5"><a href="#cb15-5" aria-hidden="true" tabindex="-1"></a>  b[, target <span class="sc">:</span><span class="er">=</span> <span class="cf">if</span> (h <span class="sc">==</span> <span class="dv">0</span>) price_diff <span class="cf">else</span> <span class="fu">shift</span>(pre_mid_price, <span class="sc">-</span>h) <span class="sc">-</span> pre_mid_price]</span>
+<span id="cb15-6"><a href="#cb15-6" aria-hidden="true" tabindex="-1"></a>  f <span class="ot">&lt;-</span> <span class="fu">apply_filters</span>(b)[<span class="sc">!</span><span class="fu">is.na</span>(target)]</span>
+<span id="cb15-7"><a href="#cb15-7" aria-hidden="true" tabindex="-1"></a>  m <span class="ot">&lt;-</span> <span class="fu">lm</span>(target <span class="sc">~</span> imbalance <span class="sc">+</span> <span class="dv">0</span>, f)</span>
+<span id="cb15-8"><a href="#cb15-8" aria-hidden="true" tabindex="-1"></a>  <span class="fu">data.table</span>(<span class="at">h_bars =</span> h, <span class="at">minutes =</span> h <span class="sc">*</span> BAR_MINUTES,</span>
+<span id="cb15-9"><a href="#cb15-9" aria-hidden="true" tabindex="-1"></a>             <span class="at">k =</span> <span class="fu">coef</span>(m)[[<span class="dv">1</span>]], <span class="at">se =</span> <span class="fu">nw_se</span>(m)[[<span class="dv">1</span>]],</span>
+<span id="cb15-10"><a href="#cb15-10" aria-hidden="true" tabindex="-1"></a>             <span class="at">R2 =</span> <span class="fu">summary</span>(m)<span class="sc">$</span>r.squared, <span class="at">n =</span> <span class="fu">nrow</span>(f))</span>
+<span id="cb15-11"><a href="#cb15-11" aria-hidden="true" tabindex="-1"></a>}))</span>
+<span id="cb15-12"><a href="#cb15-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb15-13"><a href="#cb15-13" aria-hidden="true" tabindex="-1"></a>knitr<span class="sc">::</span><span class="fu">kable</span>(</span>
+<span id="cb15-14"><a href="#cb15-14" aria-hidden="true" tabindex="-1"></a>  decay[, .(<span class="at">Window =</span> <span class="fu">fifelse</span>(h_bars <span class="sc">==</span> <span class="dv">0</span>, <span class="st">"bar end (as fitted above)"</span>,</span>
+<span id="cb15-15"><a href="#cb15-15" aria-hidden="true" tabindex="-1"></a>                             <span class="fu">sprintf</span>(<span class="st">"+%d minutes"</span>, minutes)),</span>
+<span id="cb15-16"><a href="#cb15-16" aria-hidden="true" tabindex="-1"></a>            n, k, <span class="st">`</span><span class="at">HAC s.e.</span><span class="st">`</span> <span class="ot">=</span> se, R2)],</span>
+<span id="cb15-17"><a href="#cb15-17" aria-hidden="true" tabindex="-1"></a>  <span class="at">digits =</span> <span class="fu">c</span>(<span class="dv">0</span>, <span class="dv">0</span>, <span class="dv">8</span>, <span class="dv">8</span>, <span class="dv">4</span>), <span class="at">format.args =</span> <span class="fu">list</span>(<span class="at">big.mark =</span> <span class="st">","</span>),</span>
+<span id="cb15-18"><a href="#cb15-18" aria-hidden="true" tabindex="-1"></a>  <span class="at">col.names =</span> <span class="fu">c</span>(<span class="st">"Price measured at"</span>, <span class="st">"n"</span>, <span class="st">"$</span><span class="sc">\\</span><span class="st">hat k$"</span>, <span class="st">"HAC s.e."</span>, <span class="st">"$R^2$"</span>),</span>
+<span id="cb15-19"><a href="#cb15-19" aria-hidden="true" tabindex="-1"></a>  <span class="at">caption =</span> <span class="st">"The estimate of k as the measurement point moves further past the bar."</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output-display">
+<table class="caption-top table table-sm table-striped small">
+<caption>The estimate of k as the measurement point moves further past the bar.</caption>
+<thead>
+<tr class="header">
+<th style="text-align: left;">Price measured at</th>
+<th style="text-align: right;">n</th>
+<th style="text-align: right;"><span class="math inline">\(\hat k\)</span></th>
+<th style="text-align: right;">HAC s.e.</th>
+<th style="text-align: right;"><span class="math inline">\(R^2\)</span></th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;">bar end (as fitted above)</td>
+<td style="text-align: right;">7,681</td>
+<td style="text-align: right;">0.00015022</td>
+<td style="text-align: right;">4.540e-06</td>
+<td style="text-align: right;">0.2033</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">+5 minutes</td>
+<td style="text-align: right;">7,680</td>
+<td style="text-align: right;">0.00015009</td>
+<td style="text-align: right;">4.540e-06</td>
+<td style="text-align: right;">0.2025</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">+10 minutes</td>
+<td style="text-align: right;">7,679</td>
+<td style="text-align: right;">0.00015217</td>
+<td style="text-align: right;">7.370e-06</td>
+<td style="text-align: right;">0.0864</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">+15 minutes</td>
+<td style="text-align: right;">7,678</td>
+<td style="text-align: right;">0.00015154</td>
+<td style="text-align: right;">9.420e-06</td>
+<td style="text-align: right;">0.0548</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">+30 minutes</td>
+<td style="text-align: right;">7,675</td>
+<td style="text-align: right;">0.00015224</td>
+<td style="text-align: right;">1.462e-05</td>
+<td style="text-align: right;">0.0274</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">+60 minutes</td>
+<td style="text-align: right;">7,669</td>
+<td style="text-align: right;">0.00017292</td>
+<td style="text-align: right;">2.478e-05</td>
+<td style="text-align: right;">0.0165</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<div class="cell">
+<details class="code-fold">
+<summary>Plot the decay profile</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb16"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a><span class="fu">ggplot</span>(decay, <span class="fu">aes</span>(<span class="at">x =</span> minutes, <span class="at">y =</span> k)) <span class="sc">+</span></span>
+<span id="cb16-2"><a href="#cb16-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_hline</span>(<span class="at">yintercept =</span> <span class="fu">coef</span>(fit_time)[[<span class="dv">1</span>]], <span class="at">linetype =</span> <span class="st">"dotted"</span>, <span class="at">colour =</span> <span class="st">"grey50"</span>) <span class="sc">+</span></span>
+<span id="cb16-3"><a href="#cb16-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_ribbon</span>(<span class="fu">aes</span>(<span class="at">ymin =</span> k <span class="sc">-</span> se, <span class="at">ymax =</span> k <span class="sc">+</span> se), <span class="at">fill =</span> col_data, <span class="at">alpha =</span> <span class="fl">0.18</span>) <span class="sc">+</span></span>
+<span id="cb16-4"><a href="#cb16-4" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_line</span>(<span class="at">colour =</span> col_data, <span class="at">linewidth =</span> <span class="fl">0.8</span>) <span class="sc">+</span></span>
+<span id="cb16-5"><a href="#cb16-5" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_point</span>(<span class="at">colour =</span> col_data, <span class="at">size =</span> <span class="fl">2.2</span>) <span class="sc">+</span></span>
+<span id="cb16-6"><a href="#cb16-6" aria-hidden="true" tabindex="-1"></a>  <span class="fu">expand_limits</span>(<span class="at">y =</span> <span class="dv">0</span>) <span class="sc">+</span></span>
+<span id="cb16-7"><a href="#cb16-7" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_x_continuous</span>(<span class="at">breaks =</span> decay<span class="sc">$</span>minutes) <span class="sc">+</span></span>
+<span id="cb16-8"><a href="#cb16-8" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(</span>
+<span id="cb16-9"><a href="#cb16-9" aria-hidden="true" tabindex="-1"></a>    <span class="at">title    =</span> <span class="st">"The price move does not revert"</span>,</span>
+<span id="cb16-10"><a href="#cb16-10" aria-hidden="true" tabindex="-1"></a>    <span class="at">subtitle =</span> <span class="st">"k re-estimated with the price measured h minutes after the bar's arrival mid; dotted line = headline estimate"</span>,</span>
+<span id="cb16-11"><a href="#cb16-11" aria-hidden="true" tabindex="-1"></a>    <span class="at">x =</span> <span class="st">"Minutes after bar arrival"</span>, <span class="at">y =</span> <span class="st">"Estimated k (USD per SOL)"</span></span>
+<span id="cb16-12"><a href="#cb16-12" aria-hidden="true" tabindex="-1"></a>  )</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output-display">
+<div id="fig-decay" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-decay-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<img src="estimation_of_market_impact_files/figure-html/fig-decay-1.png" class="img-fluid figure-img" width="768">
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-decay-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;2: The impact coefficient as the price is measured further after the bar. The band is one HAC standard error. A flat profile means the price move does not revert.
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<p><strong>The impact is permanent.</strong> From the bar end out to 30 minutes, <span class="math inline">\(\hat k\)</span> moves from <span class="math inline">\(1.5 \times 10^{-4}\)</span> to <span class="math inline">\(1.52 \times 10^{-4}\)</span> — a change of 1.3%, far inside one standard error. Nothing reverts.</p>
+<p><span class="math inline">\(R^2\)</span> collapses over the same range (from 0.203 to 0.027) but that is expected and is not evidence against permanence: as the horizon grows, unrelated price movement accumulates in the dependent variable while the signal stays the same size. The point estimate, not the fit quality, is what carries the answer.</p>
+<p>The mild rise by 60 minutes is the well-known persistence of order flow — imbalance is autocorrelated, so the later window captures the impact of <em>subsequent</em> correlated flow as well, not extra impact from this bar.</p>
+</section>
+<section id="is-impact-linear-in-imbalance" class="level1">
+<h1>Is impact linear in imbalance?</h1>
+<p>The model asserts <span class="math inline">\(dS = \sigma dW + k\,v\,dt\)</span>, which is linear in order flow. That can be checked the same way the exponent was checked in the companion notebook: group bars into equally populated imbalance bins and plot the conditional mean.</p>
+<div class="cell">
+<details class="code-fold">
+<summary>Binned conditional mean and power-law fit</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb17"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a>bin_imbalance <span class="ot">&lt;-</span> <span class="cf">function</span>(b, <span class="at">n_bins =</span> N_BINS) {</span>
+<span id="cb17-2"><a href="#cb17-2" aria-hidden="true" tabindex="-1"></a>  d <span class="ot">&lt;-</span> <span class="fu">copy</span>(b)[, ib <span class="sc">:</span><span class="er">=</span> <span class="fu">cut</span>(imbalance,</span>
+<span id="cb17-3"><a href="#cb17-3" aria-hidden="true" tabindex="-1"></a>                           <span class="at">breaks =</span> <span class="fu">unique</span>(<span class="fu">quantile</span>(imbalance, <span class="fu">seq</span>(<span class="dv">0</span>, <span class="dv">1</span>, <span class="at">length.out =</span> n_bins <span class="sc">+</span> <span class="dv">1</span>))),</span>
+<span id="cb17-4"><a href="#cb17-4" aria-hidden="true" tabindex="-1"></a>                           <span class="at">include.lowest =</span> <span class="cn">TRUE</span>)]</span>
+<span id="cb17-5"><a href="#cb17-5" aria-hidden="true" tabindex="-1"></a>  d[<span class="sc">!</span><span class="fu">is.na</span>(ib), .(<span class="at">mean_diff =</span> <span class="fu">mean</span>(price_diff), <span class="at">mean_imb =</span> <span class="fu">mean</span>(imbalance), <span class="at">n =</span> .N),</span>
+<span id="cb17-6"><a href="#cb17-6" aria-hidden="true" tabindex="-1"></a>    by <span class="ot">=</span> ib][<span class="fu">order</span>(mean_imb)]</span>
+<span id="cb17-7"><a href="#cb17-7" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb17-8"><a href="#cb17-8" aria-hidden="true" tabindex="-1"></a>binned_time <span class="ot">&lt;-</span> <span class="fu">bin_imbalance</span>(bars_time)</span>
+<span id="cb17-9"><a href="#cb17-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb17-10"><a href="#cb17-10" aria-hidden="true" tabindex="-1"></a><span class="co"># Power law, fitted in levels so that both signs are used: k |v|^beta sign(v).</span></span>
+<span id="cb17-11"><a href="#cb17-11" aria-hidden="true" tabindex="-1"></a>power_time <span class="ot">&lt;-</span> <span class="fu">nls</span>(price_diff <span class="sc">~</span> a <span class="sc">*</span> <span class="fu">sign</span>(imbalance) <span class="sc">*</span> <span class="fu">abs</span>(imbalance)<span class="sc">^</span>beta,</span>
+<span id="cb17-12"><a href="#cb17-12" aria-hidden="true" tabindex="-1"></a>                  <span class="at">data =</span> bars_time, <span class="at">start =</span> <span class="fu">list</span>(<span class="at">a =</span> <span class="fl">1e-3</span>, <span class="at">beta =</span> <span class="fl">0.7</span>),</span>
+<span id="cb17-13"><a href="#cb17-13" aria-hidden="true" tabindex="-1"></a>                  <span class="at">control =</span> <span class="fu">nls.control</span>(<span class="at">maxiter =</span> <span class="dv">300</span>, <span class="at">warnOnly =</span> <span class="cn">TRUE</span>))</span>
+<span id="cb17-14"><a href="#cb17-14" aria-hidden="true" tabindex="-1"></a>power_volume <span class="ot">&lt;-</span> <span class="fu">nls</span>(price_diff <span class="sc">~</span> a <span class="sc">*</span> <span class="fu">sign</span>(imbalance) <span class="sc">*</span> <span class="fu">abs</span>(imbalance)<span class="sc">^</span>beta,</span>
+<span id="cb17-15"><a href="#cb17-15" aria-hidden="true" tabindex="-1"></a>                    <span class="at">data =</span> bars_volume, <span class="at">start =</span> <span class="fu">list</span>(<span class="at">a =</span> <span class="fl">1e-3</span>, <span class="at">beta =</span> <span class="fl">0.7</span>),</span>
+<span id="cb17-16"><a href="#cb17-16" aria-hidden="true" tabindex="-1"></a>                    <span class="at">control =</span> <span class="fu">nls.control</span>(<span class="at">maxiter =</span> <span class="dv">300</span>, <span class="at">warnOnly =</span> <span class="cn">TRUE</span>))</span>
+<span id="cb17-17"><a href="#cb17-17" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb17-18"><a href="#cb17-18" aria-hidden="true" tabindex="-1"></a>beta_time <span class="ot">&lt;-</span> <span class="fu">coef</span>(power_time)[[<span class="st">"beta"</span>]]</span>
+<span id="cb17-19"><a href="#cb17-19" aria-hidden="true" tabindex="-1"></a>beta_vol  <span class="ot">&lt;-</span> <span class="fu">coef</span>(power_volume)[[<span class="st">"beta"</span>]]</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+</div>
+<div class="cell">
+<details class="code-fold">
+<summary>Plot linear vs power law</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb18"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a>grid <span class="ot">&lt;-</span> <span class="fu">data.table</span>(<span class="at">imbalance =</span> <span class="fu">seq</span>(<span class="fu">min</span>(bars_time<span class="sc">$</span>imbalance), <span class="fu">max</span>(bars_time<span class="sc">$</span>imbalance),</span>
+<span id="cb18-2"><a href="#cb18-2" aria-hidden="true" tabindex="-1"></a>                                   <span class="at">length.out =</span> <span class="dv">400</span>))</span>
+<span id="cb18-3"><a href="#cb18-3" aria-hidden="true" tabindex="-1"></a>grid[, Linear <span class="sc">:</span><span class="er">=</span> <span class="fu">coef</span>(fit_time)[[<span class="dv">1</span>]] <span class="sc">*</span> imbalance]</span>
+<span id="cb18-4"><a href="#cb18-4" aria-hidden="true" tabindex="-1"></a>grid[, <span class="st">`</span><span class="at">Power law</span><span class="st">`</span> <span class="sc">:</span><span class="er">=</span> <span class="fu">coef</span>(power_time)[[<span class="st">"a"</span>]] <span class="sc">*</span> <span class="fu">sign</span>(imbalance) <span class="sc">*</span> <span class="fu">abs</span>(imbalance)<span class="sc">^</span>beta_time]</span>
+<span id="cb18-5"><a href="#cb18-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb18-6"><a href="#cb18-6" aria-hidden="true" tabindex="-1"></a><span class="fu">ggplot</span>() <span class="sc">+</span></span>
+<span id="cb18-7"><a href="#cb18-7" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_line</span>(<span class="at">data =</span> <span class="fu">melt</span>(grid, <span class="at">id.vars =</span> <span class="st">"imbalance"</span>, <span class="at">variable.name =</span> <span class="st">"Fit"</span>, <span class="at">value.name =</span> <span class="st">"y"</span>),</span>
+<span id="cb18-8"><a href="#cb18-8" aria-hidden="true" tabindex="-1"></a>            <span class="fu">aes</span>(<span class="at">x =</span> imbalance, <span class="at">y =</span> y, <span class="at">colour =</span> Fit, <span class="at">linetype =</span> Fit), <span class="at">linewidth =</span> <span class="fl">0.9</span>) <span class="sc">+</span></span>
+<span id="cb18-9"><a href="#cb18-9" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_point</span>(<span class="at">data =</span> binned_time, <span class="fu">aes</span>(<span class="at">x =</span> mean_imb, <span class="at">y =</span> mean_diff),</span>
+<span id="cb18-10"><a href="#cb18-10" aria-hidden="true" tabindex="-1"></a>             <span class="at">colour =</span> col_data, <span class="at">size =</span> <span class="fl">2.2</span>) <span class="sc">+</span></span>
+<span id="cb18-11"><a href="#cb18-11" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_colour_manual</span>(<span class="at">values =</span> <span class="fu">c</span>(<span class="st">"Linear"</span> <span class="ot">=</span> col_muted, <span class="st">"Power law"</span> <span class="ot">=</span> col_model)) <span class="sc">+</span></span>
+<span id="cb18-12"><a href="#cb18-12" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_linetype_manual</span>(<span class="at">values =</span> <span class="fu">c</span>(<span class="st">"Linear"</span> <span class="ot">=</span> <span class="st">"solid"</span>, <span class="st">"Power law"</span> <span class="ot">=</span> <span class="st">"dashed"</span>)) <span class="sc">+</span></span>
+<span id="cb18-13"><a href="#cb18-13" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_x_continuous</span>(<span class="at">labels =</span> comma) <span class="sc">+</span></span>
+<span id="cb18-14"><a href="#cb18-14" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(</span>
+<span id="cb18-15"><a href="#cb18-15" aria-hidden="true" tabindex="-1"></a>    <span class="at">title    =</span> <span class="st">"Permanent impact is concave, not linear"</span>,</span>
+<span id="cb18-16"><a href="#cb18-16" aria-hidden="true" tabindex="-1"></a>    <span class="at">subtitle =</span> <span class="fu">sprintf</span>(<span class="st">"%d imbalance bins of %s bars each; fitted exponent = %.2f"</span>,</span>
+<span id="cb18-17"><a href="#cb18-17" aria-hidden="true" tabindex="-1"></a>                       <span class="fu">nrow</span>(binned_time), <span class="fu">comma</span>(<span class="fu">round</span>(<span class="fu">mean</span>(binned_time<span class="sc">$</span>n))), beta_time),</span>
+<span id="cb18-18"><a href="#cb18-18" aria-hidden="true" tabindex="-1"></a>    <span class="at">x =</span> <span class="st">"Imbalance (net signed SOL, bin mean)"</span>, <span class="at">y =</span> <span class="st">"Mean mid-price change (USD)"</span>,</span>
+<span id="cb18-19"><a href="#cb18-19" aria-hidden="true" tabindex="-1"></a>    <span class="at">caption =</span> <span class="st">"Blue points: conditional mean per bin. The linear fit is the no-intercept regression above."</span></span>
+<span id="cb18-20"><a href="#cb18-20" aria-hidden="true" tabindex="-1"></a>  )</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output-display">
+<div id="fig-linearity" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-linearity-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<img src="estimation_of_market_impact_files/figure-html/fig-linearity-1.png" class="img-fluid figure-img" width="768">
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-linearity-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;3: Conditional mean price change by imbalance bin, against the linear and power-law fits. The data bend away from the straight line at both ends.
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<div class="cell">
+<details class="code-fold">
+<summary>Linear against power law</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb19"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb19-1"><a href="#cb19-1" aria-hidden="true" tabindex="-1"></a>train <span class="ot">&lt;-</span> bars_time[<span class="fu">isoweek</span>(bin) <span class="sc">&lt;=</span> <span class="dv">33</span>]</span>
+<span id="cb19-2"><a href="#cb19-2" aria-hidden="true" tabindex="-1"></a>test  <span class="ot">&lt;-</span> bars_time[<span class="fu">isoweek</span>(bin) <span class="sc">&gt;</span>  <span class="dv">33</span>]</span>
+<span id="cb19-3"><a href="#cb19-3" aria-hidden="true" tabindex="-1"></a>m_lin <span class="ot">&lt;-</span> <span class="fu">lm</span>(price_diff <span class="sc">~</span> imbalance <span class="sc">+</span> <span class="dv">0</span>, train)</span>
+<span id="cb19-4"><a href="#cb19-4" aria-hidden="true" tabindex="-1"></a>m_pow <span class="ot">&lt;-</span> <span class="fu">nls</span>(price_diff <span class="sc">~</span> a <span class="sc">*</span> <span class="fu">sign</span>(imbalance) <span class="sc">*</span> <span class="fu">abs</span>(imbalance)<span class="sc">^</span>beta, train,</span>
+<span id="cb19-5"><a href="#cb19-5" aria-hidden="true" tabindex="-1"></a>             <span class="at">start =</span> <span class="fu">list</span>(<span class="at">a =</span> <span class="fl">1e-3</span>, <span class="at">beta =</span> <span class="fl">0.7</span>),</span>
+<span id="cb19-6"><a href="#cb19-6" aria-hidden="true" tabindex="-1"></a>             <span class="at">control =</span> <span class="fu">nls.control</span>(<span class="at">maxiter =</span> <span class="dv">300</span>, <span class="at">warnOnly =</span> <span class="cn">TRUE</span>))</span>
+<span id="cb19-7"><a href="#cb19-7" aria-hidden="true" tabindex="-1"></a>rmse <span class="ot">&lt;-</span> <span class="cf">function</span>(e) <span class="fu">sqrt</span>(<span class="fu">mean</span>(e<span class="sc">^</span><span class="dv">2</span>))</span>
+<span id="cb19-8"><a href="#cb19-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb19-9"><a href="#cb19-9" aria-hidden="true" tabindex="-1"></a>knitr<span class="sc">::</span><span class="fu">kable</span>(</span>
+<span id="cb19-10"><a href="#cb19-10" aria-hidden="true" tabindex="-1"></a>  <span class="fu">data.table</span>(</span>
+<span id="cb19-11"><a href="#cb19-11" aria-hidden="true" tabindex="-1"></a>    <span class="at">Specification =</span> <span class="fu">c</span>(<span class="st">"Linear  $k</span><span class="sc">\\</span><span class="st">,v$"</span>, <span class="st">"Power law  $a</span><span class="sc">\\</span><span class="st">,</span><span class="sc">\\</span><span class="st">mathrm{sign}(v)|v|^{</span><span class="sc">\\</span><span class="st">beta}$"</span>),</span>
+<span id="cb19-12"><a href="#cb19-12" aria-hidden="true" tabindex="-1"></a>    <span class="st">`</span><span class="at">Exponent</span><span class="st">`</span>    <span class="ot">=</span> <span class="fu">c</span>(<span class="dv">1</span>, beta_time),</span>
+<span id="cb19-13"><a href="#cb19-13" aria-hidden="true" tabindex="-1"></a>    <span class="at">AIC           =</span> <span class="fu">c</span>(<span class="fu">AIC</span>(fit_time), <span class="fu">AIC</span>(power_time)),</span>
+<span id="cb19-14"><a href="#cb19-14" aria-hidden="true" tabindex="-1"></a>    <span class="st">`</span><span class="at">Out-of-sample RMSE</span><span class="st">`</span> <span class="ot">=</span> <span class="fu">c</span>(<span class="fu">rmse</span>(test<span class="sc">$</span>price_diff <span class="sc">-</span> <span class="fu">predict</span>(m_lin, test)),</span>
+<span id="cb19-15"><a href="#cb19-15" aria-hidden="true" tabindex="-1"></a>                             <span class="fu">rmse</span>(test<span class="sc">$</span>price_diff <span class="sc">-</span> <span class="fu">predict</span>(m_pow, test)))</span>
+<span id="cb19-16"><a href="#cb19-16" aria-hidden="true" tabindex="-1"></a>  ),</span>
+<span id="cb19-17"><a href="#cb19-17" aria-hidden="true" tabindex="-1"></a>  <span class="at">digits =</span> <span class="fu">c</span>(<span class="dv">0</span>, <span class="dv">3</span>, <span class="dv">1</span>, <span class="dv">4</span>),</span>
+<span id="cb19-18"><a href="#cb19-18" aria-hidden="true" tabindex="-1"></a>  <span class="at">caption =</span> <span class="st">"Time bars. Out-of-sample fits ISO weeks 31-33 and evaluates on weeks 34-35."</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output-display">
+<table class="caption-top table table-sm table-striped small">
+<caption>Time bars. Out-of-sample fits ISO weeks 31-33 and evaluates on weeks 34-35.</caption>
+<colgroup>
+<col style="width: 60%">
+<col style="width: 10%">
+<col style="width: 7%">
+<col style="width: 21%">
+</colgroup>
+<thead>
+<tr class="header">
+<th style="text-align: left;">Specification</th>
+<th style="text-align: right;">Exponent</th>
+<th style="text-align: right;">AIC</th>
+<th style="text-align: right;">Out-of-sample RMSE</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;">Linear <span class="math inline">\(k\,v\)</span></td>
+<td style="text-align: right;">1.000</td>
+<td style="text-align: right;">3075.3</td>
+<td style="text-align: right;">0.2282</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Power law <span class="math inline">\(a\,\mathrm{sign}(v)&amp;#124;v&amp;#124;^{\beta}\)</span></td>
+<td style="text-align: right;">0.704</td>
+<td style="text-align: right;">3008.4</td>
+<td style="text-align: right;">0.2268</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<p>The exponent is 0.70 (standard error 0.032) on time bars and 0.69 on volume bars — both far below 1, and consistent across the two bar constructions. The power law improves AIC by 67 points and wins out-of-sample, so it is not simply a more flexible model overfitting.</p>
+<p>This does not mean <span class="math inline">\(k\)</span> should be discarded. The Almgren–Chriss solution needs <em>linear</em> permanent impact for its closed form, and <span class="math inline">\(\hat k\)</span> remains the right input to that framework. What the concavity means is that <span class="math inline">\(\hat k\)</span> is a <strong>local linearisation</strong>, valid over the range of imbalances it was fitted on (-3,673 to 2,339 SOL per bar). Extrapolated beyond that, it will overstate the impact of large flow.</p>
+</section>
+<section id="filter-sensitivity" class="level1">
+<h1>Filter sensitivity</h1>
+<p>The concavity has a direct consequence that is worth making explicit, because it is the largest source of uncertainty in <span class="math inline">\(\hat k\)</span> — larger than the standard error.</p>
+<div class="cell">
+<details class="code-fold">
+<summary>Sensitivity to the cleaning choices</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb20"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb20-1"><a href="#cb20-1" aria-hidden="true" tabindex="-1"></a>spec_at <span class="ot">&lt;-</span> <span class="cf">function</span>(b, label) {</span>
+<span id="cb20-2"><a href="#cb20-2" aria-hidden="true" tabindex="-1"></a>  m <span class="ot">&lt;-</span> <span class="fu">lm</span>(price_diff <span class="sc">~</span> imbalance <span class="sc">+</span> <span class="dv">0</span>, b)</span>
+<span id="cb20-3"><a href="#cb20-3" aria-hidden="true" tabindex="-1"></a>  p <span class="ot">&lt;-</span> <span class="fu">nls</span>(price_diff <span class="sc">~</span> a <span class="sc">*</span> <span class="fu">sign</span>(imbalance) <span class="sc">*</span> <span class="fu">abs</span>(imbalance)<span class="sc">^</span>beta, b,</span>
+<span id="cb20-4"><a href="#cb20-4" aria-hidden="true" tabindex="-1"></a>           <span class="at">start =</span> <span class="fu">list</span>(<span class="at">a =</span> <span class="fl">1e-3</span>, <span class="at">beta =</span> <span class="fl">0.7</span>),</span>
+<span id="cb20-5"><a href="#cb20-5" aria-hidden="true" tabindex="-1"></a>           <span class="at">control =</span> <span class="fu">nls.control</span>(<span class="at">maxiter =</span> <span class="dv">300</span>, <span class="at">warnOnly =</span> <span class="cn">TRUE</span>))</span>
+<span id="cb20-6"><a href="#cb20-6" aria-hidden="true" tabindex="-1"></a>  <span class="fu">data.table</span>(<span class="at">Filter =</span> label, <span class="at">n =</span> <span class="fu">nrow</span>(b), <span class="at">k =</span> <span class="fu">coef</span>(m)[[<span class="dv">1</span>]],</span>
+<span id="cb20-7"><a href="#cb20-7" aria-hidden="true" tabindex="-1"></a>             <span class="at">beta =</span> <span class="fu">coef</span>(p)[[<span class="st">"beta"</span>]], <span class="at">R2 =</span> <span class="fu">summary</span>(m)<span class="sc">$</span>r.squared)</span>
+<span id="cb20-8"><a href="#cb20-8" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb20-9"><a href="#cb20-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb20-10"><a href="#cb20-10" aria-hidden="true" tabindex="-1"></a>cut_sd  <span class="ot">&lt;-</span> <span class="fu">quantile</span>(bars_time_all<span class="sc">$</span>std_dev,   TRIM_Q,     <span class="at">na.rm =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb20-11"><a href="#cb20-11" aria-hidden="true" tabindex="-1"></a>cut_qty <span class="ot">&lt;-</span> <span class="fu">quantile</span>(bars_time_all<span class="sc">$</span>base_qty,  TRIM_Q,     <span class="at">na.rm =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb20-12"><a href="#cb20-12" aria-hidden="true" tabindex="-1"></a>cut_hi  <span class="ot">&lt;-</span> <span class="fu">quantile</span>(bars_time_all<span class="sc">$</span>imbalance, TRIM_Q,     <span class="at">na.rm =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb20-13"><a href="#cb20-13" aria-hidden="true" tabindex="-1"></a>cut_lo  <span class="ot">&lt;-</span> <span class="fu">quantile</span>(bars_time_all<span class="sc">$</span>imbalance, <span class="dv">1</span> <span class="sc">-</span> TRIM_Q, <span class="at">na.rm =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb20-14"><a href="#cb20-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb20-15"><a href="#cb20-15" aria-hidden="true" tabindex="-1"></a>sens <span class="ot">&lt;-</span> <span class="fu">rbindlist</span>(<span class="fu">list</span>(</span>
+<span id="cb20-16"><a href="#cb20-16" aria-hidden="true" tabindex="-1"></a>  <span class="fu">spec_at</span>(bars_time_all[<span class="sc">!</span><span class="fu">is.na</span>(std_dev)], <span class="st">"No trimming"</span>),</span>
+<span id="cb20-17"><a href="#cb20-17" aria-hidden="true" tabindex="-1"></a>  <span class="fu">spec_at</span>(bars_time_all[<span class="sc">!</span><span class="fu">is.na</span>(std_dev) <span class="sc">&amp;</span> std_dev <span class="sc">&lt;=</span> cut_sd <span class="sc">&amp;</span> base_qty <span class="sc">&lt;=</span> cut_qty],</span>
+<span id="cb20-18"><a href="#cb20-18" aria-hidden="true" tabindex="-1"></a>          <span class="st">"Volatility + volume only"</span>),</span>
+<span id="cb20-19"><a href="#cb20-19" aria-hidden="true" tabindex="-1"></a>  <span class="fu">spec_at</span>(bars_time_all[<span class="sc">!</span><span class="fu">is.na</span>(std_dev) <span class="sc">&amp;</span> imbalance <span class="sc">&lt;=</span> cut_hi <span class="sc">&amp;</span> imbalance <span class="sc">&gt;=</span> cut_lo],</span>
+<span id="cb20-20"><a href="#cb20-20" aria-hidden="true" tabindex="-1"></a>          <span class="st">"Imbalance tails only"</span>),</span>
+<span id="cb20-21"><a href="#cb20-21" aria-hidden="true" tabindex="-1"></a>  <span class="fu">spec_at</span>(bars_time, <span class="st">"All three (headline)"</span>),</span>
+<span id="cb20-22"><a href="#cb20-22" aria-hidden="true" tabindex="-1"></a>  <span class="fu">spec_at</span>(<span class="fu">apply_filters</span>(bars_time_all, <span class="fl">0.90</span>), <span class="st">"All three, trimmed at 10/90"</span>)</span>
+<span id="cb20-23"><a href="#cb20-23" aria-hidden="true" tabindex="-1"></a>))</span>
+<span id="cb20-24"><a href="#cb20-24" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb20-25"><a href="#cb20-25" aria-hidden="true" tabindex="-1"></a>knitr<span class="sc">::</span><span class="fu">kable</span>(sens, <span class="at">digits =</span> <span class="fu">c</span>(<span class="dv">0</span>, <span class="dv">0</span>, <span class="dv">8</span>, <span class="dv">3</span>, <span class="dv">3</span>), <span class="at">format.args =</span> <span class="fu">list</span>(<span class="at">big.mark =</span> <span class="st">","</span>),</span>
+<span id="cb20-26"><a href="#cb20-26" aria-hidden="true" tabindex="-1"></a>             <span class="at">col.names =</span> <span class="fu">c</span>(<span class="st">"Filter"</span>, <span class="st">"n"</span>, <span class="st">"$</span><span class="sc">\\</span><span class="st">hat k$"</span>, <span class="st">"$</span><span class="sc">\\</span><span class="st">hat</span><span class="sc">\\</span><span class="st">beta$"</span>, <span class="st">"$R^2$"</span>),</span>
+<span id="cb20-27"><a href="#cb20-27" aria-hidden="true" tabindex="-1"></a>             <span class="at">caption =</span> <span class="st">"Both parameters under alternative cleaning choices."</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output-display">
+<table class="caption-top table table-sm table-striped small">
+<caption>Both parameters under alternative cleaning choices.</caption>
+<thead>
+<tr class="header">
+<th style="text-align: left;">Filter</th>
+<th style="text-align: right;">n</th>
+<th style="text-align: right;"><span class="math inline">\(\hat k\)</span></th>
+<th style="text-align: right;"><span class="math inline">\(\hat\beta\)</span></th>
+<th style="text-align: right;"><span class="math inline">\(R^2\)</span></th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;">No trimming</td>
+<td style="text-align: right;">8,914</td>
+<td style="text-align: right;">0.00010107</td>
+<td style="text-align: right;">0.692</td>
+<td style="text-align: right;">0.273</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Volatility + volume only</td>
+<td style="text-align: right;">8,243</td>
+<td style="text-align: right;">0.00011371</td>
+<td style="text-align: right;">0.633</td>
+<td style="text-align: right;">0.247</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">Imbalance tails only</td>
+<td style="text-align: right;">8,021</td>
+<td style="text-align: right;">0.00015328</td>
+<td style="text-align: right;">0.710</td>
+<td style="text-align: right;">0.184</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">All three (headline)</td>
+<td style="text-align: right;">7,681</td>
+<td style="text-align: right;">0.00015022</td>
+<td style="text-align: right;">0.704</td>
+<td style="text-align: right;">0.203</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">All three, trimmed at 10/90</td>
+<td style="text-align: right;">6,586</td>
+<td style="text-align: right;">0.00016483</td>
+<td style="text-align: right;">0.678</td>
+<td style="text-align: right;">0.158</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<div class="cell">
+<details class="code-fold">
+<summary>Plot the sensitivity</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb21"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb21-1"><a href="#cb21-1" aria-hidden="true" tabindex="-1"></a>base_k <span class="ot">&lt;-</span> sens[Filter <span class="sc">==</span> <span class="st">"All three (headline)"</span>, k]</span>
+<span id="cb21-2"><a href="#cb21-2" aria-hidden="true" tabindex="-1"></a>base_b <span class="ot">&lt;-</span> sens[Filter <span class="sc">==</span> <span class="st">"All three (headline)"</span>, beta]</span>
+<span id="cb21-3"><a href="#cb21-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb21-4"><a href="#cb21-4" aria-hidden="true" tabindex="-1"></a>sens_long <span class="ot">&lt;-</span> <span class="fu">rbind</span>(</span>
+<span id="cb21-5"><a href="#cb21-5" aria-hidden="true" tabindex="-1"></a>  sens[, .(Filter, <span class="at">Parameter =</span> <span class="st">"k (linear slope)"</span>,  <span class="at">dev =</span> <span class="dv">100</span> <span class="sc">*</span> (k <span class="sc">/</span> base_k <span class="sc">-</span> <span class="dv">1</span>))],</span>
+<span id="cb21-6"><a href="#cb21-6" aria-hidden="true" tabindex="-1"></a>  sens[, .(Filter, <span class="at">Parameter =</span> <span class="st">"beta (power-law exponent)"</span>, <span class="at">dev =</span> <span class="dv">100</span> <span class="sc">*</span> (beta <span class="sc">/</span> base_b <span class="sc">-</span> <span class="dv">1</span>))]</span>
+<span id="cb21-7"><a href="#cb21-7" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb21-8"><a href="#cb21-8" aria-hidden="true" tabindex="-1"></a>sens_long[, Filter <span class="sc">:</span><span class="er">=</span> <span class="fu">factor</span>(Filter, <span class="at">levels =</span> <span class="fu">rev</span>(sens<span class="sc">$</span>Filter))]</span>
+<span id="cb21-9"><a href="#cb21-9" aria-hidden="true" tabindex="-1"></a>sens_long[, Parameter <span class="sc">:</span><span class="er">=</span> <span class="fu">factor</span>(Parameter, <span class="at">levels =</span> <span class="fu">c</span>(<span class="st">"k (linear slope)"</span>,</span>
+<span id="cb21-10"><a href="#cb21-10" aria-hidden="true" tabindex="-1"></a>                                                      <span class="st">"beta (power-law exponent)"</span>))]</span>
+<span id="cb21-11"><a href="#cb21-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb21-12"><a href="#cb21-12" aria-hidden="true" tabindex="-1"></a><span class="fu">ggplot</span>(sens_long, <span class="fu">aes</span>(<span class="at">x =</span> dev, <span class="at">y =</span> Filter, <span class="at">fill =</span> Parameter)) <span class="sc">+</span></span>
+<span id="cb21-13"><a href="#cb21-13" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_vline</span>(<span class="at">xintercept =</span> <span class="dv">0</span>, <span class="at">colour =</span> <span class="st">"grey55"</span>, <span class="at">linewidth =</span> <span class="fl">0.4</span>) <span class="sc">+</span></span>
+<span id="cb21-14"><a href="#cb21-14" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_col</span>(<span class="at">width =</span> <span class="fl">0.6</span>) <span class="sc">+</span></span>
+<span id="cb21-15"><a href="#cb21-15" aria-hidden="true" tabindex="-1"></a>  <span class="fu">facet_wrap</span>(<span class="sc">~</span> Parameter) <span class="sc">+</span></span>
+<span id="cb21-16"><a href="#cb21-16" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_fill_manual</span>(<span class="at">values =</span> <span class="fu">c</span>(<span class="st">"k (linear slope)"</span> <span class="ot">=</span> col_data,</span>
+<span id="cb21-17"><a href="#cb21-17" aria-hidden="true" tabindex="-1"></a>                               <span class="st">"beta (power-law exponent)"</span> <span class="ot">=</span> col_model),</span>
+<span id="cb21-18"><a href="#cb21-18" aria-hidden="true" tabindex="-1"></a>                    <span class="at">guide =</span> <span class="st">"none"</span>) <span class="sc">+</span></span>
+<span id="cb21-19"><a href="#cb21-19" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_x_continuous</span>(<span class="at">labels =</span> <span class="fu">label_number</span>(<span class="at">suffix =</span> <span class="st">"%"</span>)) <span class="sc">+</span></span>
+<span id="cb21-20"><a href="#cb21-20" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(</span>
+<span id="cb21-21"><a href="#cb21-21" aria-hidden="true" tabindex="-1"></a>    <span class="at">title    =</span> <span class="st">"The exponent is stable where the slope is not"</span>,</span>
+<span id="cb21-22"><a href="#cb21-22" aria-hidden="true" tabindex="-1"></a>    <span class="at">subtitle =</span> <span class="st">"Deviation from the headline specification, in per cent"</span>,</span>
+<span id="cb21-23"><a href="#cb21-23" aria-hidden="true" tabindex="-1"></a>    <span class="at">x =</span> <span class="cn">NULL</span>, <span class="at">y =</span> <span class="cn">NULL</span></span>
+<span id="cb21-24"><a href="#cb21-24" aria-hidden="true" tabindex="-1"></a>  )</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output-display">
+<div id="fig-sensitivity" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-sensitivity-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<img src="estimation_of_market_impact_files/figure-html/fig-sensitivity-1.png" class="img-fluid figure-img" width="768">
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-sensitivity-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;4: The same five cleaning choices, expressed as a percentage deviation from the headline specification. Separate panels because the two parameters are on different scales — never a shared axis.
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<p>Across these five defensible cleaning choices <span class="math inline">\(\hat k\)</span> moves by 63%, while <span class="math inline">\(\hat\beta\)</span> moves by only 12%.</p>
+<p>The mechanism is the concavity. The imbalance trim removes observations of the <em>regressor</em>, and it removes them from the tails — which is exactly where a concave curve is flattest. Cutting them off leaves a steeper average slope, so <span class="math inline">\(\hat k\)</span> rises: <span class="math inline">\(1.01 \times 10^{-4}\)</span> untrimmed against <span class="math inline">\(1.5 \times 10^{-4}\)</span> at the headline setting. Under the power-law specification, which does not need the curve to be straight, that sensitivity largely disappears. Any <span class="math inline">\(\hat k\)</span> quoted from this data should therefore be quoted together with the trimming rule that produced it.</p>
+</section>
+<section id="robustness" class="level1">
+<h1>Robustness</h1>
+<div class="cell">
+<details class="code-fold">
+<summary>Subsample and bar-size robustness</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb22"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb22-1"><a href="#cb22-1" aria-hidden="true" tabindex="-1"></a>weekly <span class="ot">&lt;-</span> <span class="fu">rbindlist</span>(<span class="fu">lapply</span>(<span class="fu">sort</span>(<span class="fu">unique</span>(<span class="fu">isoweek</span>(bars_time<span class="sc">$</span>bin))), <span class="cf">function</span>(w) {</span>
+<span id="cb22-2"><a href="#cb22-2" aria-hidden="true" tabindex="-1"></a>  b <span class="ot">&lt;-</span> bars_time[<span class="fu">isoweek</span>(bin) <span class="sc">==</span> w]</span>
+<span id="cb22-3"><a href="#cb22-3" aria-hidden="true" tabindex="-1"></a>  m <span class="ot">&lt;-</span> <span class="fu">lm</span>(price_diff <span class="sc">~</span> imbalance <span class="sc">+</span> <span class="dv">0</span>, b)</span>
+<span id="cb22-4"><a href="#cb22-4" aria-hidden="true" tabindex="-1"></a>  <span class="fu">data.table</span>(<span class="at">Specification =</span> <span class="fu">sprintf</span>(<span class="st">"ISO week %d"</span>, w), <span class="at">n =</span> <span class="fu">nrow</span>(b),</span>
+<span id="cb22-5"><a href="#cb22-5" aria-hidden="true" tabindex="-1"></a>             <span class="at">k =</span> <span class="fu">coef</span>(m)[[<span class="dv">1</span>]], <span class="at">R2 =</span> <span class="fu">summary</span>(m)<span class="sc">$</span>r.squared)</span>
+<span id="cb22-6"><a href="#cb22-6" aria-hidden="true" tabindex="-1"></a>}))</span>
+<span id="cb22-7"><a href="#cb22-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb22-8"><a href="#cb22-8" aria-hidden="true" tabindex="-1"></a>by_size <span class="ot">&lt;-</span> <span class="fu">rbindlist</span>(<span class="fu">lapply</span>(<span class="fu">c</span>(<span class="dv">2000</span>, <span class="dv">5000</span>, <span class="dv">20000</span>), <span class="cf">function</span>(sz) {</span>
+<span id="cb22-9"><a href="#cb22-9" aria-hidden="true" tabindex="-1"></a>  b <span class="ot">&lt;-</span> <span class="fu">apply_filters</span>(<span class="fu">make_bars</span>(<span class="fu">floor</span>(trades<span class="sc">$</span>cum_base_qty <span class="sc">/</span> sz)))</span>
+<span id="cb22-10"><a href="#cb22-10" aria-hidden="true" tabindex="-1"></a>  m <span class="ot">&lt;-</span> <span class="fu">lm</span>(price_diff <span class="sc">~</span> imbalance <span class="sc">+</span> <span class="dv">0</span>, b)</span>
+<span id="cb22-11"><a href="#cb22-11" aria-hidden="true" tabindex="-1"></a>  <span class="fu">data.table</span>(<span class="at">Specification =</span> <span class="fu">sprintf</span>(<span class="st">"Volume bars, %s SOL"</span>, <span class="fu">comma</span>(sz)), <span class="at">n =</span> <span class="fu">nrow</span>(b),</span>
+<span id="cb22-12"><a href="#cb22-12" aria-hidden="true" tabindex="-1"></a>             <span class="at">k =</span> <span class="fu">coef</span>(m)[[<span class="dv">1</span>]], <span class="at">R2 =</span> <span class="fu">summary</span>(m)<span class="sc">$</span>r.squared)</span>
+<span id="cb22-13"><a href="#cb22-13" aria-hidden="true" tabindex="-1"></a>}))</span>
+<span id="cb22-14"><a href="#cb22-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb22-15"><a href="#cb22-15" aria-hidden="true" tabindex="-1"></a>knitr<span class="sc">::</span><span class="fu">kable</span>(<span class="fu">rbind</span>(weekly, by_size), <span class="at">digits =</span> <span class="fu">c</span>(<span class="dv">0</span>, <span class="dv">0</span>, <span class="dv">8</span>, <span class="dv">3</span>),</span>
+<span id="cb22-16"><a href="#cb22-16" aria-hidden="true" tabindex="-1"></a>             <span class="at">format.args =</span> <span class="fu">list</span>(<span class="at">big.mark =</span> <span class="st">","</span>),</span>
+<span id="cb22-17"><a href="#cb22-17" aria-hidden="true" tabindex="-1"></a>             <span class="at">col.names =</span> <span class="fu">c</span>(<span class="st">"Specification"</span>, <span class="st">"n"</span>, <span class="st">"$</span><span class="sc">\\</span><span class="st">hat k$"</span>, <span class="st">"$R^2$"</span>),</span>
+<span id="cb22-18"><a href="#cb22-18" aria-hidden="true" tabindex="-1"></a>             <span class="at">caption =</span> <span class="st">"Stability of k across subperiods and bar sizes."</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output-display">
+<table class="caption-top table table-sm table-striped small">
+<caption>Stability of k across subperiods and bar sizes.</caption>
+<thead>
+<tr class="header">
+<th style="text-align: left;">Specification</th>
+<th style="text-align: right;">n</th>
+<th style="text-align: right;"><span class="math inline">\(\hat k\)</span></th>
+<th style="text-align: right;"><span class="math inline">\(R^2\)</span></th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;">ISO week 31</td>
+<td style="text-align: right;">895</td>
+<td style="text-align: right;">0.00017182</td>
+<td style="text-align: right;">0.267</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">ISO week 32</td>
+<td style="text-align: right;">1,488</td>
+<td style="text-align: right;">0.00016537</td>
+<td style="text-align: right;">0.165</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">ISO week 33</td>
+<td style="text-align: right;">1,833</td>
+<td style="text-align: right;">0.00014318</td>
+<td style="text-align: right;">0.194</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">ISO week 34</td>
+<td style="text-align: right;">1,881</td>
+<td style="text-align: right;">0.00013219</td>
+<td style="text-align: right;">0.218</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">ISO week 35</td>
+<td style="text-align: right;">1,584</td>
+<td style="text-align: right;">0.00013754</td>
+<td style="text-align: right;">0.231</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Volume bars, 2,000 SOL</td>
+<td style="text-align: right;">21,780</td>
+<td style="text-align: right;">0.00018556</td>
+<td style="text-align: right;">0.215</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">Volume bars, 5,000 SOL</td>
+<td style="text-align: right;">8,671</td>
+<td style="text-align: right;">0.00016784</td>
+<td style="text-align: right;">0.230</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Volume bars, 20,000 SOL</td>
+<td style="text-align: right;">2,160</td>
+<td style="text-align: right;">0.00014612</td>
+<td style="text-align: right;">0.273</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<p>Week to week <span class="math inline">\(\hat k\)</span> ranges from <span class="math inline">\(1.32 \times 10^{-4}\)</span> to <span class="math inline">\(1.72 \times 10^{-4}\)</span>, and across volume-bar sizes from <span class="math inline">\(1.46 \times 10^{-4}\)</span> to <span class="math inline">\(1.86 \times 10^{-4}\)</span>. Both bands are comparable to the spread produced by the cleaning choices, and both are much wider than the HAC standard error — which is the usual situation for this kind of estimate, and the reason the sensitivity table above matters more than the regression output.</p>
+</section>
 <section id="conclusion" class="level1">
 <h1>Conclusion</h1>
-<p>The estimated permanent impact coefficient <span class="math inline">\(k\)</span> (the slope on <code>imbalance</code>) is <span class="math inline">\(1.5 \times 10^{-4}\)</span> for the time-bar specification and <span class="math inline">\(1.68 \times 10^{-4}\)</span> for the volume-bar specification. A stable, significant slope on <code>imbalance</code> across both the time-bar and volume-bar specifications would indicate a genuine permanent impact coefficient <span class="math inline">\(k\)</span> rather than an artifact of the chosen bar construction.</p>
+<p>The estimated permanent impact coefficient <span class="math inline">\(k\)</span> is <span class="math inline">\(1.5 \times 10^{-4}\)</span> for the time-bar specification and <span class="math inline">\(1.68 \times 10^{-4}\)</span> for the volume-bar specification, in USD per SOL of net signed flow. The two agree to within 12%, so the estimate is not an artifact of the bar construction. In interpretable terms, a net buy of 1,000 SOL — roughly $143,000 of notional — moves the mid-price permanently by about 10.47 bps.</p>
+<p>Three findings qualify that number.</p>
+<p><strong>The impact really is permanent.</strong> Pushing the measurement point out to 30 minutes leaves <span class="math inline">\(\hat k\)</span> unchanged to within 1%. This is the assumption the whole model rests on, and it holds.</p>
+<p><strong>But it is not linear.</strong> The conditional mean is clearly concave, with an exponent of 0.70 on time bars and 0.69 on volume bars. <span class="math inline">\(\hat k\)</span> should be read as a local linearisation over the fitted imbalance range (-3,673 to 2,339 SOL per bar), appropriate as an Almgren–Chriss input at those sizes, and increasingly conservative above them.</p>
+<p><strong>The cleaning rule matters more than the standard error.</strong> <span class="math inline">\(\hat k\)</span> varies by 63% across reasonable trimming choices against a HAC standard error of 3.0% of the estimate. This is a consequence of forcing a straight line through a concave relationship, and it is the reason the trimming rule belongs in any quotation of <span class="math inline">\(k\)</span>.</p>
+<p>A caveat on external validity: this is one month of one instrument, and August 2024 contains the 5 August volatility event. The weekly breakdown is reassuring, but confirming <span class="math inline">\(\hat k\)</span> and <span class="math inline">\(\hat\beta\)</span> on other months — <code>data/</code> holds January through October — is the natural next step.</p>
 </section>
 
 </main>
