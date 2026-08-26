@@ -214,7 +214,7 @@ By not aggregating the trades, we would double count the shallower levels and ov
 
 The attribute/field `distance_from_mid` is the signed distance from the pre-trade mid-price to the execution price of a trade in the trades data, measured in USD.
 
-The unit is not a presentational choice. In the AS and Guéant solutions $\delta$ is a *price* offset — $\delta^a_t = S^a_t - S_t$ is a number of dollars — so $\kappa$ carries units of USD$^{-1}$ and the optimal-quote formulas consume it in exactly that form. Estimating in ticks and dividing by `TICK_SIZE` at the end gives the same answer, but it puts a unit conversion at the one point where a mistake is least visible: $\kappa$ is a slope, so a wrong conversion still produces a plausible-looking fit. So $\delta$ is carried in USD from the raw trade onwards, and $\kappa$ is estimated per USD directly.
+The unit is not a presentational choice. In the AS and Guéant solutions $\delta$ is a *price* offset, $\delta^a_t = S^a_t - S_t$ is a number of dollars so $\kappa$ carries units of USD$^{-1}$ and the optimal-quote formulas consume it in exactly that form. Estimating in ticks and dividing by `TICK_SIZE` at the end gives the same answer, but it puts a unit conversion at the one point where a mistake is least visible: $\kappa$ is a slope, so a wrong conversion still produces a plausible-looking fit. So $\delta$ is carried in USD from the raw trade onwards, and $\kappa$ is estimated per USD directly.
 
 A per-tick figure $\kappa_{\text{tick}} = \kappa \times$ `TICK_SIZE` is reported alongside as a reading aid, since the exponential decays over a handful of ticks and that is the easier scale to eyeball. The tick grid also survives in the binning: bins are laid out as multiples of a tick and only then expressed in USD.
 
@@ -294,7 +294,7 @@ $$
 \Lambda(\delta) = \lambda_\text{tot}\cdot \mathbb{P}(p_x \ge \delta).
 $$
 
-This identity is what $\Lambda$ *means*, and it is the object plotted in @fig-survival. It is also the obvious thing to regress on, and that is the trap: the counts entering it are nested. An order that reaches three ticks deep also reached two ticks, and every order that reached two ticks also reached one, so the observations at successive depths are near-copies of one another rather than independent draws. Regressing on them produces heavily autocorrelated residuals, and correlated residuals make the standard errors meaningless — the confidence intervals come out far too narrow while the point estimate looks perfectly reasonable.
+This identity is what $\Lambda$ *means*, and it is the object plotted in @fig-survival. It is also the obvious thing to regress on, and that is the trap: the counts entering it are nested. An order that reaches three ticks deep also reached two ticks, and every order that reached two ticks also reached one, so the observations at successive depths are near-copies of one another rather than independent draws. Regressing on them produces heavily autocorrelated residuals, and correlated residuals make the standard errors meaningless, and hence the the confidence intervals come out far too narrow while the point estimate looks perfectly reasonable.
 
 The fix is to regress on something disjoint instead. Differencing the tail gives the density, whose bins partition the data rather than nesting it, and it carries exactly the same $\kappa$.
 
@@ -348,7 +348,7 @@ $$
 
 ### Two corrections to the level
 
-So the estimator is a single Poisson GLM on disjoint half-tick bins. The density and the tail decay at the same rate, so nothing about $\kappa$ is given up by fitting the density instead of the tail — the slope is $-\kappa$ and can be read straight off.
+So the estimator is a single Poisson GLM on disjoint half-tick bins. The density and the tail decay at the same rate, so nothing about $\kappa$ is given up by fitting the density instead of the tail, the slope is $-\kappa$ and can be read straight off.
 
 The intercept is a different matter. It is *not* $\log A$, and the two reasons why are both easy to skip.
 
@@ -359,13 +359,13 @@ $$
 so the fitted intercept is $\log\!\big(2\sinh(\kappa w/2)\,A\big)$, not $\log A$.
 The factor depends only on the dimensionless product $\kappa w$, so it is the same number whichever unit $\delta$ is carried in: a half-tick bin with $\kappa$ of order $1$ per tick, and the same bin written as $w = 0.0005$ USD with $\kappa$ of order $1000$ per USD, both give $\kappa w \approx 0.5$ and a factor near $0.5$, which causes a two-fold error in the level.
 
-**Left truncation.** The shallowest observable distance from the mid is half the quoted spread, $\delta_{\min}$, so it can never be zero. This does not bias $\kappa$ — the exponential is memoryless, and the fit simply starts further out — but it does mean the raw order rate $\lambda_\text{tot} = N_{\text{side}}/T_b$ is $\Lambda(\delta_{\min})$ rather than $\Lambda(0) = A$. Extrapolating back,
+**Left truncation.** The shallowest observable distance from the mid is half the quoted spread, $\delta_{\min}$, so it can never be zero. This does not bias $\kappa$ since the exponential is memoryless, and the fit simply starts further out, but it does mean the raw order rate $\lambda_\text{tot} = N_{\text{side}}/T_b$ is $\Lambda(\delta_{\min})$ rather than $\Lambda(0) = A$. Extrapolating back,
 $$
 A \;=\; \lambda_\text{tot}\,e^{\kappa\delta_{\min}},
 $$
 which uses only the total count and the truncation point, and so provides a check on the level that is independent of the fitted line's shape. @sec-level runs it as exactly that: a consistency test on the GLM's intercept, not a competing estimate.
 
-Both corrections raise the level. The intercept has to be divided by $2\sinh(\kappa w/2)$, which is below $1$ for any realistic bin, and the order rate has to be multiplied by $e^{\kappa\delta_{\min}}$, which is above $1$. Neither factor is close enough to $1$ to ignore, and neither is visible in a residual plot, since both leave the *slope* untouched — the fit looks fine either way. @sec-level prints both factors alongside the raw and corrected levels so their size can be read off rather than assumed.
+Both corrections raise the level. The intercept has to be divided by $2\sinh(\kappa w/2)$, which is below $1$ for any realistic bin, and the order rate has to be multiplied by $e^{\kappa\delta_{\min}}$, which is above $1$. Neither factor is close enough to $1$ to ignore, and neither is visible in a residual plot, since both leave the *slope* untouched, the fit looks fine either way. @sec-level prints both factors alongside the raw and corrected levels so their size can be read off rather than assumed.
 
 ```{r}
 #| label: helpers
@@ -496,7 +496,7 @@ delta_grid <- seq(0, DELTA_MAX, by = TICK_SIZE / 4)  # quarter-tick steps
 
 ## Estimating $\kappa$ {#sec-kappa}
 
-$N_k \sim \text{Poisson}(T_b\,\cdot\,\text{rate})$ with $\log T_b$ as an offset, so the model estimates a rate rather than a raw count. $T_b$ is real elapsed clock time in seconds — not a trade count — which is what puts $A$ in genuine orders-per-second and makes the cross-check in @sec-level a real test rather than a tautology. The regressor `delta_k` is a bin centre in USD, so the reported $\kappa$ is in USD$^{-1}$ and `kappa_tick` is the same quantity scaled to ticks.
+$N_k \sim \text{Poisson}(T_b\,\cdot\,\text{rate})$ with $\log T_b$ as an offset, so the model estimates a rate rather than a raw count. $T_b$ is real elapsed clock time in seconds (not a trade count,) which is what puts $A$ in genuine orders-per-second and makes the cross-check in @sec-level a real test rather than a tautology. The regressor `delta_k` is a bin centre in USD, so the reported $\kappa$ is in USD$^{-1}$ and `kappa_tick` is the same quantity scaled to ticks.
 
 ```{r}
 #| label: kappa-glm
@@ -520,11 +520,11 @@ Read $\kappa$ through its reciprocal, which is the depth over which the fill rat
 
 Whether the two sides differ meaningfully is answered by their intervals rather than by their point estimates: the AS model assumes $\Lambda^a = \Lambda^b$, and that assumption is only safe here if the two $\kappa$ intervals overlap. They are carried separately throughout precisely so that the question stays askable.
 
-The `dispersion` column is a diagnostic in its own right. A value near 1 would say the binned counts really are Poisson; anything much larger says arrivals cluster (as they do — order flow is close to self-exciting), and is the reason the intervals above are inflated by $\sqrt{\phi}$.
+The `dispersion` column is a diagnostic in its own right. A value near 1 would say the binned counts really are Poisson; anything much larger says arrivals cluster (as they do since order flow, volume and market participation is close to self-exciting), and is the reason the intervals above are inflated by $\sqrt{\phi}$.
 
-It is worth being suspicious of a large $\phi$ before attributing it to clustering, because binning artefacts imitate overdispersion very convincingly. A single mis-formed bin is enough: on a synthetic sample of independent exponential draws, trimming the fit range at the raw `TRIM_Q` quantile rather than at a bin edge leaves the deepest bin partly filled, and that one bin alone drives $\phi$ from $0.5$ to roughly $150$ — inflating every interval by more than tenfold while leaving $\kappa$ and $A$ visually untouched. `make_bins` snaps the trim point down to a bin edge for exactly this reason, so what is left in $\phi$ here is the genuine article.
+It is worth being suspicious of a large $\phi$ before attributing it to clustering, because binning artefacts imitate overdispersion very convincingly. A single mis-formed bin is enough: on a synthetic sample of independent exponential draws, trimming the fit range at the raw `TRIM_Q` quantile rather than at a bin edge leaves the deepest bin partly filled, and that one bin alone drives $\phi$ from $0.5$ to roughly $150$ which inflates every interval by more than tenfold while leaving $\kappa$ and $A$ visually untouched. `make_bins` snaps the trim point down to a bin edge for exactly this reason, so what is left in $\phi$ here is the genuine article.
 
-**Cross-check — weighted OLS.** Regressing $\ln\hat\lambda(\delta_k)$ on $\delta_k$ weighted by $N_k$ should land close to the GLM slope. It is kept only as a sanity check: it has to drop empty bins ($\ln 0$), and it assumes homoskedastic log-counts, which binned Poisson counts are not.
+**Cross-check for weighted OLS.** Regressing $\ln\hat\lambda(\delta_k)$ on $\delta_k$ weighted by $N_k$ should land close to the GLM slope. It is kept only as a sanity check: it has to drop empty bins ($\ln 0$), and it assumes homoskedastic log-counts, which binned Poisson counts are not.
 
 ```{r}
 #| label: kappa-ols
@@ -560,7 +560,7 @@ ggplot(pooled_bins[N_k > 0], aes(x = delta_k, y = log(N_k / T_b))) +
   scale_size_continuous(guide = "none") +
   labs(
     title    = "Log-intensity vs. distance from mid, by side",
-    subtitle = sprintf("%s, %s — disjoint %.1f-tick (%g USD) bins, fit truncated at the %.0f%% quantile of distance from mid",
+    subtitle = sprintf("%s, %s  disjoint %.1f-tick (%g USD) bins, fit truncated at the %.0f%% quantile of distance from mid",
                        SYMBOL, MONTH, BIN_TICKS, BIN_SIZE, 100 * TRIM_Q),
     x = expression(delta[k]~"(USD from mid)"),
     y = expression(log~hat(lambda)(delta[k]))
@@ -569,7 +569,7 @@ ggplot(pooled_bins[N_k > 0], aes(x = delta_k, y = log(N_k / T_b))) +
 
 ## Setting the level $A$ {#sec-level}
 
-`A_glm` is the estimate: the GLM intercept with the bin-width factor divided out. `A_tail` is the check from @sec-shape — the raw per-side order rate extrapolated back through $e^{\kappa\delta_{\min}}$ — and it is worth running because it shares almost nothing with the estimate. `A_tail` uses only the total count and the truncation point; `A_glm` uses only the shape of the fitted line. A specification error in the GLM would have to be a strange one to move both by the same factor.
+`A_glm` is the estimate: the GLM intercept with the bin-width factor divided out. `A_tail` is the check from @sec-shape, the raw per-side order rate extrapolated back through $e^{\kappa\delta_{\min}}$; and it is worth running because it shares almost nothing with the estimate. `A_tail` uses only the total count and the truncation point; `A_glm` uses only the shape of the fitted line. A specification error in the GLM would have to be a strange one to move both by the same factor.
 
 ```{r}
 #| label: A-level
@@ -595,7 +595,7 @@ A `ratio` near 1 is the pass condition, and the fit delivers `r fmt(val(A_compar
 
 `A_glm` and `lambda_tot` are *not* expected to match, and reading them as a consistency check is the trap: one is a level at $\delta = 0$, the other a tail level at $\delta = \delta_{\min}$.
 
-`bin_factor` and `trunc_factor` are the reason this section exists. On the ask side they are `r fmt(val(A_comparison, ASK, "bin_factor"), 3)` and `r fmt(val(A_comparison, ASK, "trunc_factor"), 3)` respectively, so `A_glm_raw` and `A_tail_raw` sit at those fractions of the true level. Both corrections push in the *same* direction — each uncorrected quantity understates $A$ — and neither shows up as a bad fit, because both leave the slope alone. An uncorrected pipeline produces a perfectly straight log-linear plot, a sensible $\kappa$, and a level that is wrong by tens of percent.
+`bin_factor` and `trunc_factor` are the reason this section exists. On the ask side they are `r fmt(val(A_comparison, ASK, "bin_factor"), 3)` and `r fmt(val(A_comparison, ASK, "trunc_factor"), 3)` respectively, so `A_glm_raw` and `A_tail_raw` sit at those fractions of the true level. Both corrections push in the *same* direction as each uncorrected quantity understates $A$, and neither shows up as a bad fit, because both leave the slope alone. An uncorrected pipeline produces a perfectly straight log-linear plot, a sensible $\kappa$, and a level that is wrong by tens of percent.
 
 Whether the two raw numbers happen to agree with each other depends on nothing more than the ratio of $\kappa w$ to $\kappa\delta_{\min}$, so their agreement (or disagreement) carries no information about correctness. Only the corrected `ratio` does.
 
@@ -632,13 +632,13 @@ ggplot(emp_survival[lambda > 0], aes(x = delta, y = lambda)) +
   )
 ```
 
-The flat left-hand shoulder is the truncation made visible — below $\delta_{\min}$ the empirical curve cannot fall, because every order reaches at least that far. The fitted line continuing to rise through that region is precisely the $e^{\kappa\delta_{\min}}$ extrapolation that defines $A$.
+The flat left-hand shoulder is the truncation made visible, below $\delta_{\min}$ the empirical curve cannot fall, because every order reaches at least that far. The fitted line continuing to rise through that region is precisely the $e^{\kappa\delta_{\min}}$ extrapolation that defines $A$.
 
 ## What the estimate is for: the depth trade-off {#sec-tradeoff}
 
 It is worth pausing on why $(A, \kappa)$ is the object worth estimating at all, because the trade-off it encodes is the whole market making problem in miniature.
 
-A limit order resting at depth $\delta$ from the mid earns $\delta$ per fill — that is the edge over the reference price she captures by being passive rather than crossing — and it fills at rate $\Lambda(\delta)$. Ignoring inventory risk entirely, the expected edge accrued per second is the product:
+A limit order resting at depth $\delta$ from the mid earns $\delta$ per fill, that is the edge over the reference price she captures by being passive rather than crossing the bid ask spread, and it fills at rate $\Lambda(\delta)$. Ignoring inventory risk entirely, the expected edge accrued per second is the product:
 $$
 E(\delta) \;=\; \delta \, \Lambda(\delta) \;=\; A\,\delta\, e^{-\kappa\delta}.
 $$
@@ -652,9 +652,9 @@ $$
 \delta^{*} \;=\; \frac{1}{\kappa}, \qquad E(\delta^{*}) \;=\; \frac{A}{e\,\kappa}.
 $$
 
-So the reciprocal of $\kappa$ is not merely a convenient way to read the decay scale — it *is* the risk-neutral optimal quoting depth, and $A$ scales the money without moving where the optimum sits. This is why the level and the shape have to be estimated separately and why the corrections in @sec-level matter: a two-fold error in $A$ halves the estimated profitability without disturbing $\delta^{*}$ at all, so it cannot be caught by looking at where the peak is.
+So the reciprocal of $\kappa$ is not merely a convenient way to read the decay scale, but it *is* the risk-neutral optimal quoting depth, and $A$ scales the money without moving where the optimum sits. This is why the level and the shape have to be estimated separately and why the corrections in @sec-level matter: a two-fold error in $A$ halves the estimated profitability without disturbing $\delta^{*}$ at all, so it cannot be caught by looking at where the peak is.
 
-The result also lines up with the AS solution quoted in @tbl-vol-summary. Its inventory-independent total spread is $\frac{2}{\gamma}\log(1 + \gamma/\kappa)$, and since $\log(1+x) \to x$ as $x \to 0$, that tends to $2/\kappa$ as $\gamma \to 0$ — i.e. $1/\kappa$ per side, exactly $\delta^{*}$. Risk aversion only ever pulls the quote *in* from there, because $\log(1+x) < x$ for $x > 0$; the inventory skew is then layered on top.
+The result also lines up with the AS solution quoted in @tbl-vol-summary. Its inventory-independent total spread is $\frac{2}{\gamma}\log(1 + \gamma/\kappa)$, and since $\log(1+x) \to x$ as $x \to 0$, that tends to $2/\kappa$ as $\gamma \to 0$ (i.e. $1/\kappa$) per side, exactly $\delta^{*}$. Risk aversion only ever pulls the quote *in* from there, because $\log(1+x) < x$ for $x > 0$; the inventory skew is then layered on top.
 
 ```{r}
 #| label: fig-tradeoff
@@ -702,7 +702,7 @@ ggplot(tradeoff, aes(x = delta, y = value, colour = side, fill = side)) +
   scale_fill_manual(values = c(col_data, col_model)) +
   labs(
     title    = "Fill rate, edge per fill, and where they balance",
-    subtitle = sprintf("%s, %s — pooled fit; dashed lines mark delta* = 1/kappa",
+    subtitle = sprintf("%s, %s pooled fit; dashed lines mark delta* = 1/kappa",
                        SYMBOL, MONTH),
     x = expression(delta~"(USD from mid)"),
     y = NULL
@@ -715,7 +715,7 @@ Two cautions on that number. It is a *gross* edge measured against the pre-trade
 
 ## Diagnosing the fit
 
-@fig-kappa-fit is the linearity check: near the touch the points should track the fitted line on both sides, and systematic curvature in the deeper, thinner bins is the usual sign of the exponential giving way to a fatter power-law tail. Where that departure starts marks the depth beyond which $\kappa$ shouldn't be trusted — which matters less than it sounds, since actual quoting lives in the first few ticks anyway. The fit is truncated at the `r sprintf("%.0f%%", 100*TRIM_Q)` quantile of the distance from the mid for exactly this reason.
+@fig-kappa-fit is the linearity check: near the touch the points should track the fitted line on both sides, and systematic curvature in the deeper, thinner bins is the usual sign of the exponential giving way to a fatter power-law tail. Where that departure starts marks the depth beyond which $\kappa$ shouldn't be trusted which matters less than it sounds, since actual quoting lives in the first few ticks anyway. The fit is truncated at the `r sprintf("%.0f%%", 100*TRIM_Q)` quantile of the distance from the mid for exactly this reason.
 
 The second check is stability: refit per calendar day and side, and see whether $\hat\kappa$ wanders relative to its interval.
 
@@ -730,7 +730,7 @@ kappa_by_day <- fit_intensity(day_bins, c("side", "date"))
 
 ```{r}
 #| label: fig-kappa-stability
-#| fig-cap: "Estimated kappa per calendar day and side (points, 95% overdispersion-corrected Wald intervals) against the pooled fit (dashed lines). Day-to-day swings much larger than the interval width argue against pooling the whole month into one estimate — which motivates the regime split below."
+#| fig-cap: "Estimated kappa per calendar day and side (points, 95% overdispersion-corrected Wald intervals) against the pooled fit (dashed lines). Day-to-day swings much larger than the interval width argue against pooling the whole month into one estimate, which motivates the regime split below."
 
 ggplot(kappa_by_day, aes(x = date, y = kappa, colour = side)) +
   geom_pointrange(
@@ -751,7 +751,7 @@ ggplot(kappa_by_day, aes(x = date, y = kappa, colour = side)) +
 
 # Intensity by volatility regime {#sec-vol-regimes}
 
-The daily plot above is the motivation for this section: if $\hat\kappa$ moves around materially across days, a single monthly $(A, \kappa)$ is the wrong object to feed the HJB solution. Calendar day, though, is an arbitrary conditioning variable. Volatility is not — it is observable in real time, it is persistent enough to be worth conditioning on, and it has a clear mechanical link to the distance from the mid: when the price is moving, takers cross more aggressively and the book is thinner, so orders reach deeper.
+The daily plot above is the motivation for this section: if $\hat\kappa$ moves around materially across days, a single monthly $(A, \kappa)$ is the wrong object to feed the HJB solution which is the market making model. Calendar day is an arbitrary conditioning variable. Volatility is not, it is observable in real time, it is persistent enough to be worth conditioning on, and it has a clear mechanical link to the distance from the mid: when the price is moving, takers cross more aggressively and the book is thinner, so orders reach deeper.
 
 ## Building the volatility grid
 
@@ -759,7 +759,7 @@ Trades are bucketed into `r BAR_MINUTES`-minute bars, realised variance is accum
 
 Two choices matter here:
 
-- **Mid returns, not trade returns.** Trade prices bounce between bid and ask with the sign of the aggressor. Summing squared trade-to-trade returns measures that bounce as much as it measures volatility, and the bounce is mechanically correlated with the spread — which is the very thing driving `distance_from_mid`. Using `pre_mid` breaks that circularity.
+- **Mid returns, not trade returns.** Trade prices bounce between bid and ask with the sign of the aggressor. Summing squared trade-to-trade returns measures that bounce as much as it measures volatility, and the bounce is mechanically correlated with the spread, which is the very thing driving `distance_from_mid`. Using `pre_mid` breaks that circularity.
 - **Lagged by one bar.** The regime assigned to a bar is computed from the `r VOL_WINDOW` bars *ending before it starts*. Volatility estimated from the same bar's trades would be contemporaneous with the distances from the mid being explained, and the resulting $\kappa$–vol relationship would be partly an artefact. The lag makes the conditioning variable one a quoting engine could genuinely act on.
 
 ```{r}
@@ -816,17 +816,17 @@ VOL_HI <- paste0("V", N_VOL_BINS)
 regime_exposure
 ```
 
-::: {.callout-note}
+
 ## Why exposure has to be carried per regime
 
-$T_b$ is recomputed as the number of bars in the regime times the bar length, not reused from the pooled window. Without that, a regime containing a quarter of the bars would have its intensity divided by four times too much clock time and $A$ would be understated by the same factor, while $\kappa$ — being a slope — would look fine. That asymmetry is what makes this class of bug easy to miss.
+$T_b$ is recomputed as the number of bars in the regime times the bar length, not reused from the pooled window. Without that, a regime containing a quarter of the bars would have its intensity divided by four times too much clock time and $A$ would be understated by the same factor, while $\kappa$, being a slope, would look fine. That asymmetry is what makes this class of bug easy to miss.
 
 A useful side effect of cutting on quantiles: the regimes hold equal numbers of *bars* by construction, so $T_b$ is nearly identical across them. Differences in $A$ below are therefore genuine differences in arrival rate, not exposure artefacts.
-:::
+
 
 ```{r}
 #| label: fig-vol-regimes
-#| fig-cap: "Trailing realised volatility through the month, coloured by the quantile regime each bar falls into. Regimes are contiguous in level, not in time — high-volatility bars cluster into episodes rather than spreading evenly across the sample."
+#| fig-cap: "Trailing realised volatility through the month, coloured by the quantile regime each bar falls into. Regimes are contiguous in level, not in time, high-volatility bars cluster into episodes rather than spreading evenly across the sample."
 
 ggplot(bar_rv[!is.na(vol_regime)], aes(x = ts, y = sigma_ann, colour = vol_regime)) +
   geom_point(size = 0.25, alpha = 0.5) +
@@ -835,7 +835,7 @@ ggplot(bar_rv[!is.na(vol_regime)], aes(x = ts, y = sigma_ann, colour = vol_regim
   guides(colour = guide_legend(override.aes = list(size = 2, alpha = 1))) +
   labs(
     title    = "Trailing realised volatility by regime",
-    subtitle = sprintf("%s, %s — %d-minute bars, %d-bar trailing window, annualised",
+    subtitle = sprintf("%s, %s  %d-minute bars, %d-bar trailing window, annualised",
                        SYMBOL, MONTH, BAR_MINUTES, VOL_WINDOW),
     x = NULL, y = "Annualised volatility"
   )
@@ -901,7 +901,7 @@ Compare those against the pooled fit of $\kappa$ = `r fmt(val(glm_fit, ASK, "kap
 
 ```{r}
 #| label: fig-vol-kappa
-#| fig-cap: "Kappa and the fitted level A across volatility regimes, by side, both with 95% overdispersion-corrected intervals. A falling kappa means the fill-rate curve flattens — depth buys less protection — while a rising A means more arrivals at every depth. The interval on A comes from the delta method on log A, so it is asymmetric and cannot cross zero."
+#| fig-cap: "Kappa and the fitted level A across volatility regimes, by side, both with 95% overdispersion-corrected intervals. A falling kappa means the fill-rate curve flattens, depth buys less protection, while a rising A means more arrivals at every depth. The interval on A comes from the delta method on log A, so it is asymmetric and cannot cross zero."
 #| fig-height: 4
 
 kappa_panel <- vol_fit[, .(vol_regime, side, value = kappa,
@@ -919,7 +919,7 @@ ggplot(rbind(kappa_panel, A_panel),
   scale_colour_manual(values = c(col_data, col_model)) +
   labs(
     title    = "Intensity parameters across volatility regimes",
-    subtitle = sprintf("%s, %s — regimes are quantiles of trailing realised volatility",
+    subtitle = sprintf("%s, %s regimes are quantiles of trailing realised volatility",
                        SYMBOL, MONTH),
     x = "Volatility regime (low to high)", y = NULL
   )
@@ -955,7 +955,7 @@ ggplot(vol_curves, aes(x = delta, y = lambda, colour = vol_regime)) +
 
 ### What the regimes imply for quoting
 
-@fig-vol-curves is the honest object but a hard one to act on. Collapsing each curve to the two numbers a quoting engine would actually use — where to rest, and what that earns — makes the regime effect legible.
+@fig-vol-curves is the honest object but a hard one to act on. Collapsing each curve to the two numbers a quoting engine would actually use (where to rest), and what that earns (makes the regime effect legible).
 
 ```{r}
 #| label: fig-vol-optimal
@@ -991,7 +991,7 @@ ggplot(opt_panels, aes(x = vol_regime, y = value, colour = side, group = side)) 
   scale_colour_manual(values = c(col_data, col_model)) +
   labs(
     title    = "What each volatility regime prescribes",
-    subtitle = sprintf("%s, %s — delta* = 1/kappa, edge = delta* x Lambda(delta*)",
+    subtitle = sprintf("%s, %s delta* = 1/kappa, edge = delta* x Lambda(delta*)",
                        SYMBOL, MONTH),
     x = "Volatility regime (low to high)", y = NULL
   )
@@ -999,7 +999,7 @@ ggplot(opt_panels, aes(x = vol_regime, y = value, colour = side, group = side)) 
 
 On the ask side that runs from `r fmt(vval(vol_opt, VOL_LO, ASK, "delta_star"), 2)` ticks in `r VOL_LO` to `r fmt(vval(vol_opt, VOL_HI, ASK, "delta_star"), 2)` ticks in `r VOL_HI`, earning `r fmt(vval(vol_opt, VOL_LO, ASK, "edge"), 2)` and `r fmt(vval(vol_opt, VOL_HI, ASK, "edge"), 2)` USD per hour per unit quoted respectively.
 
-This is the panel that decides whether the regime split is worth its complexity, and it is a stricter test than @fig-vol-kappa. $A$ and $\kappa$ can both move convincingly while $\delta^{*} = 1/\kappa$ barely does, in which case the maker quotes at the same depth regardless and the conditioning only changes her forecast of how *often* she trades — useful for sizing and for expected P&L, but not for where the order goes.
+This is the panel that decides whether the regime split is worth its complexity, and it is a stricter test than @fig-vol-kappa. $A$ and $\kappa$ can both move convincingly while $\delta^{*} = 1/\kappa$ barely does, in which case the maker quotes at the same depth regardless and the conditioning only changes her forecast of how *often* she trades useful for sizing and for expected P&L, but not for where the order goes.
 
 ## Assessing the regime split
 
@@ -1007,9 +1007,9 @@ Three things to read off the output above.
 
 **Does $\kappa$ actually move with volatility?** The test is whether the regime-to-regime spread in $\hat\kappa$ is large compared to the (overdispersion-corrected) intervals in @fig-vol-kappa. The expected sign is $\kappa$ falling as volatility rises: in fast markets takers cross further, so the distance-from-mid distribution has a fatter tail and depth buys less protection. If the intervals overlap across all regimes, then volatility is not adding information over the pooled fit and the extra complexity is not earning its place.
 
-**Does $A$ move in the same direction?** $A$ should rise with volatility — more arrivals at every depth. Note that $A$ and $\kappa$ moving together is not double-counting: they answer different questions. $A$ sets how much flow there is; $\kappa$ sets how quickly it thins with depth. The quantity that matters for quoting is the whole curve in @fig-vol-curves, and the two parameters can push it in opposing directions at different depths.
+**Does $A$ move in the same direction?** $A$ should rise with volatility, more arrivals at every depth. Note that $A$ and $\kappa$ moving together is not double-counting: they answer different questions. $A$ sets how much flow there is; $\kappa$ sets how quickly it thins with depth. The quantity that matters for quoting is the whole curve in @fig-vol-curves, and the two parameters can push it in opposing directions at different depths.
 
-**Is the exponential still a good fit inside each regime?** Pooling across regimes is itself a mixture of exponentials, which is fatter-tailed than any single exponential — so some of the curvature visible in the pooled @fig-kappa-fit should *disappear* once the regimes are separated. If it does, that is direct evidence the regime split is capturing something real rather than slicing noise. If the within-regime curves are just as bent, the departure from exponential is intrinsic and the parameterisation itself is the limitation, not the conditioning.
+**Is the exponential still a good fit inside each regime?** Pooling across regimes is itself a mixture of exponentials, which is fatter-tailed than any single exponential, so some of the curvature visible in the pooled @fig-kappa-fit should *disappear* once the regimes are separated. If it does, that is direct evidence the regime split is capturing something real rather than slicing noise. If the within-regime curves are just as bent, the departure from exponential is intrinsic and the parameterisation itself is the limitation, not the conditioning.
 
 ```{r}
 #| label: vol-fit-quality
