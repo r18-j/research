@@ -1,0 +1,1214 @@
+---
+title: "Order Imbalance"
+format:
+  pdf:
+    number-sections: TRUE
+    toc: TRUE
+    toc-depth: 3
+    fig-width: 8
+    fig-height: 4.5
+author: "Raj Kundi"
+date: "2026-08-26"
+---
+
+# Introduction
+
+Agents in optimal execution and market making make decisions based on three things: the
+
+- midprice;
+- arrival rates, and
+- the gaent's own inventory.
+
+In some cases, these state variables can supplemented by observables such as order flow, short term alpha and cointegration of prices. 
+
+We want to investigate the role the quoted volume order imbalance (or simply **order imbalance**) plays in optimal execution models. This is a measure of buy versus sell pressure in the book and *it contains predictive power on both the arrival rates of market orders and the direction and size of future price movements*. 
+
+We break down the analysis into the following:
+
+1. how does the data evolve intraday;
+2. models for order imbalance, arrival rates for market orders and prices;
+3. daily features exhibited by order imbalance, and
+4. implementation into optimal liquidation problems using limit orders.
+
+# Intraday Features
+
+The limit order imbalance
+$$
+\rho_t = \frac{V_t^b - V_t^a}{V_t^b + V_t^a},
+$$
+which is just the ratio of the quoted volume imbalance to the total quoted volume, where $V_t^b$ $V_t^a$ denotes the value of limit orders posted on the bid and respectively ask sides of the book.
+
+The volumes used could be:
+
+- *at the touch*;
+- the best $n$-levels of the book, or
+- the the volume posted within $n$ ticks of the midprice.
+
+```{r}
+#| label: setup
+#| message: false
+#| warning: false
+#| include: false
+
+library(ggplot2)
+library(data.table)
+library(knitr)
+library(gridExtra)
+library(zoo)
+library(expm)
+
+setDTthreads(0)
+
+# Large scatter plots (100ms bins over a month) can produce vector PDF
+# pages with too many drawing primitives, triggering "internal read
+# error in PDF_endpage". Render figures as raster PNG (embedded in the
+# PDF) instead.
+knitr::opts_chunk$set(dev = "png", dpi = 150)
+```
+
+```{r}
+#| label: load-data
+#| message: false
+
+trades <- fread(
+  "data/SOLUSD_PERP-trades-2024-08.csv"
+)
+
+bookTicker <- fread(
+  "data/SOLUSD_PERP-bookTicker-2024-08.csv",
+  select = c(
+    "best_bid_price", "best_ask_price",
+    "best_bid_qty", "best_ask_qty", "transaction_time"
+  )
+)
+
+# Half the quoted spread: what a marketable order concedes just by
+# crossing.
+bookTicker[, half_spread := (best_ask_price - best_bid_price) / 2]
+bookTicker[, transaction_ts := as.POSIXct(
+  transaction_time / 1000,
+  origin = "1970-01-01",
+  tz = "UTC"
+  )]
+
+setorder(bookTicker, transaction_time)
+
+# Calculations below use the full month of data. For scatter-style
+# plots (one point per 100ms bin, ~26.7M points across a month) we
+# instead plot only a single minute's worth of bins to keep figures
+# small and legible.
+plot_date <- as.POSIXct("2024-08-01", tz = "UTC")
+plot_window_seconds <- 60
+plot_date_range_ms <- as.numeric(c(
+  plot_date, plot_date + plot_window_seconds
+)) * 1000
+```
+
+```{r}
+#| label: calculate-imbalance
+#| message: false
+
+# Calculate at the touch order imbalance: (V^b - V^a) / (V^b + V^a).
+bookTicker[
+  , 
+  imbalance := (best_bid_qty - best_ask_qty)/(best_bid_qty + best_ask_qty)
+]
+```
+
+```{r}
+#| label: bin-by-100ms
+#| message: false
+
+# Group by 100ms bins and calculate statistics
+bookTicker[, time_bin := transaction_time %/% 100]
+
+binned_data <- bookTicker[, .(
+  avg_imbalance = mean(imbalance),
+  first_timestamp = min(transaction_ts)
+), by = time_bin]
+
+# Create 5 equally spaced quantile regimes from -1 to 1
+quantile_bounds <- seq(-1, 1, length.out = 6)
+regime_labels <- 
+  c("Very Negative", "Negative", "Neutral", "Positive", "Very Positive")
+
+binned_data[, regime := cut(
+  avg_imbalance,
+  breaks = quantile_bounds,
+  labels = regime_labels,
+  include.lowest = TRUE
+)]
+
+print(paste("Total bins:", nrow(binned_data)))
+print(
+  paste(
+    "Imbalance range: [", 
+    round(min(binned_data$avg_imbalance), 4), 
+    ", ",
+    round(max(binned_data$avg_imbalance), 4), 
+    "]", 
+    sep = ""
+  )
+)
+```
+
+```{r}
+#| label: plot-binned-imbalance
+#| fig-width: 12
+#| fig-height: 8
+
+# Create color palette for regimes
+regime_colors <- c(
+  "Very Negative" = "#d73027",
+  "Negative" = "#fc8d59",
+  "Neutral" = "#fee090",
+  "Positive" = "#91bfdb",
+  "Very Positive" = "#4575b4"
+)
+
+# One point per 100ms bin over a full month is far too many points to
+# plot sensibly, so the scatter plots below use a single minute's
+# bins.
+plot_binned_data <- binned_data[
+  first_timestamp >= 
+    plot_date & first_timestamp < plot_date + plot_window_seconds
+]
+
+# Plot 1: Time series with quantile regimes colored
+p1 <- ggplot(plot_binned_data, aes(x = first_timestamp, y = avg_imbalance)) +
+  geom_line(color = "black", linewidth = 0.2, alpha = 0.15) +
+  geom_point(aes(color = regime), alpha = 0.6, size = 1.5) +
+  geom_hline(
+    yintercept = 0, linetype = "dashed", color = "black", 
+    linewidth = 0.3, alpha = 0.5
+  ) +
+  geom_hline(
+    yintercept = quantile_bounds, linetype = "dotted", color = "gray", 
+    linewidth = 0.3, alpha = 0.3
+  ) +
+  scale_color_manual(values = regime_colors) +
+  labs(
+    title = "BookTicker Imbalance by 100ms Bins (Colored by Quantile Regime)",
+    x = "Time",
+    y = "Average Imbalance",
+    color = "Regime"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 12, face = "bold"),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    panel.grid.major = element_line(color = "gray90"),
+    panel.grid.minor = element_line(color = "gray95")
+  )
+
+# Plot 2: Distribution histogram with regime boundaries
+p2 <- ggplot(binned_data, aes(x = avg_imbalance)) +
+  geom_histogram(
+    bins = 50, alpha = 0.7, fill = "steelblue", color = "black", 
+    linewidth = 0.2
+  ) +
+  geom_vline(
+    xintercept = quantile_bounds, linetype = "dashed", color = "red", 
+    linewidth = 0.8, alpha = 0.7
+  ) +
+  labs(
+    title = "Distribution of Average Imbalance with Quantile Boundaries",
+    x = "Average Imbalance",
+    y = "Frequency"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 12, face = "bold"),
+    panel.grid.major = element_line(color = "gray90"),
+    panel.grid.minor = element_line(color = "gray95")
+  )
+
+gridExtra::grid.arrange(p1, p2, nrow = 2)
+```
+
+```{r}
+#| label: bin-trades-data
+#| message: false
+
+# Bin trades into 100ms intervals and count by side
+trades[, time_bin := time %/% 100]
+
+trades_binned <- trades[, .(
+  n_trades = .N,
+  n_buys = sum(is_buyer_maker == FALSE),
+  n_sells = sum(is_buyer_maker == TRUE)
+), by = time_bin]
+
+# Merge trades with imbalance bins
+binned_data <- merge(binned_data, trades_binned, by = "time_bin", all.x = TRUE)
+
+# Fill NAs with 0 (bins with no trades)
+binned_data[is.na(n_trades), n_trades := 0]
+binned_data[is.na(n_buys), n_buys := 0]
+binned_data[is.na(n_sells), n_sells := 0]
+
+print(paste("Bins with trades:", sum(binned_data$n_trades > 0)))
+print(paste("Total trades:", sum(binned_data$n_trades)))
+```
+
+```{r}
+#| label: plot-imbalance-with-trades
+#| fig-width: 12
+#| fig-height: 6
+
+# Recompute the single-minute subset now that trade counts have been
+# merged in.
+plot_binned_data <- binned_data[
+  first_timestamp >= 
+    plot_date & first_timestamp < plot_date + plot_window_seconds
+]
+
+# Plot with trade activity overlaid
+p3 <- ggplot(plot_binned_data, aes(x = first_timestamp, y = avg_imbalance)) +
+  geom_line(color = "black", linewidth = 0.2, alpha = 0.15) +
+  geom_point(aes(color = regime, size = n_trades), alpha = 0.6) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "black", 
+  linewidth = 0.3, alpha = 0.5
+) +
+  scale_color_manual(values = regime_colors) +
+  scale_size_continuous(name = "Number of Trades", range = c(1, 5)) +
+  labs(
+    title = "Order Imbalance Regimes with Market Order Activity (100ms bins)",
+    x = "Time",
+    y = "Average Imbalance",
+    color = "Regime",
+    size = "Trades"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 12, face = "bold"),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    panel.grid.major = element_line(color = "gray90"),
+    panel.grid.minor = element_line(color = "gray95")
+  )
+
+print(p3)
+```
+
+```{r}
+#| label: trades-by-regime
+#| message: false
+
+# Summary of trades by regime
+trades_by_regime <- binned_data[, .(
+  n_bins = .N,
+  total_trades = sum(n_trades),
+  total_buys = sum(n_buys),
+  total_sells = sum(n_sells),
+  avg_trades_per_bin = mean(n_trades),
+  avg_imbalance = mean(avg_imbalance)
+), by = regime]
+
+knitr::kable(
+  trades_by_regime, 
+  caption = "Trade Activity by Order Imbalance Regime"
+)
+```
+
+```{r}
+#| label: plot-trades-by-regime
+#| fig-width: 10
+#| fig-height: 6
+
+# Prepare data for stacked bar chart
+trades_regime_long <- trades_by_regime[, .(regime, total_buys, total_sells)]
+trades_regime_long <- melt(
+  trades_regime_long,
+  id.vars = "regime",
+  variable.name = "side",
+  value.name = "count"
+)
+
+trades_regime_long[
+  , 
+  side := factor(
+    side, levels = c("total_buys", "total_sells"),
+    labels = c("Market Buys", "Market Sells")
+  )
+]
+
+# Stacked bar chart
+p4 <- ggplot(
+  trades_regime_long, aes(x = factor(regime, levels = regime_labels), 
+  y = count, fill = side)
+) +
+  geom_col(position = "stack", alpha = 0.8) +
+  scale_fill_manual(
+    values = c("Market Buys" = "#1f77b4", "Market Sells" = "#ff7f0e")
+) +
+  labs(
+    title = "Market Order Activity by Order Imbalance Regime",
+    x = "Regime",
+    y = "Total Number of Market Orders",
+    fill = "Side"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 12, face = "bold"),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    panel.grid.major = element_line(color = "gray90"),
+    panel.grid.minor = element_line(color = "gray95")
+  )
+
+print(p4)
+```
+
+```{r}
+#| label: summary-statistics
+#| message: false
+
+# Summary statistics by regime
+summary_stats <- binned_data[, .(
+  Count = .N,
+  Mean = mean(avg_imbalance),
+  Std = sd(avg_imbalance),
+  Min = min(avg_imbalance),
+  Max = max(avg_imbalance)
+), by = regime]
+
+knitr::kable(summary_stats, caption = "Summary Statistics by Quantile Regime")
+```
+
+## Autocorrelation of Order Imbalance
+
+We examine the persistence of order imbalance by computing its autocorrelation function (ACF) over 2,000 lags of the 100ms bins, i.e. roughly the first 200 seconds.
+
+```{r}
+#| label: acf-imbalance
+#| fig-width: 10
+#| fig-height: 5
+
+setorder(binned_data, time_bin)
+
+acf_result <- acf(
+  binned_data$avg_imbalance,
+  lag.max = 2000,
+  plot = FALSE,
+  na.action = na.pass
+)
+
+acf_df <- data.table(
+  lag = as.integer(acf_result$lag[, 1, 1]),
+  acf = as.numeric(acf_result$acf[, 1, 1])
+)
+acf_df[, lag_seconds := lag * 0.1]
+
+# 95% confidence bound under the white-noise null
+ci_bound <- qnorm(0.975) / sqrt(acf_result$n.used)
+
+p5 <- ggplot(acf_df, aes(x = lag_seconds, y = acf)) +
+  geom_segment(
+    aes(xend = lag_seconds, yend = 0), color = "steelblue", linewidth = 0.3
+  ) +
+  geom_hline(yintercept = 0, color = "black", linewidth = 0.3) +
+  geom_hline(
+    yintercept = c(-ci_bound, ci_bound), linetype = "dashed", color = "red", 
+    linewidth = 0.5
+  ) +
+  labs(
+    title = "Autocorrelation of Order Imbalance (100ms Bins, 2000 Lags ~ 200s)",
+    x = "Lag (seconds)",
+    y = "ACF"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 12, face = "bold"),
+    panel.grid.major = element_line(color = "gray90"),
+    panel.grid.minor = element_line(color = "gray95")
+  )
+
+print(p5)
+```
+
+## Imbalance and Future Price Changes
+
+We measure the correlation between the current order imbalance and the subsequent midprice change, as a function of the forecast horizon $n$ (in 100ms intervals). Since the midprice is frequently unchanged between consecutive bins at this frequency, we condition on the price having actually moved by horizon $n$.
+
+```{r}
+#| label: bin-midprice
+#| message: false
+
+# End-of-bin midprice for each 100ms bin
+bookTicker[, midprice := (best_bid_price + best_ask_price) / 2]
+
+midprice_binned <- bookTicker[, .(
+  midprice = data.table::last(midprice)
+), by = time_bin]
+
+binned_data <- merge(
+  binned_data, midprice_binned, by = "time_bin", all.x = TRUE
+)
+setorder(binned_data, time_bin)
+```
+
+```{r}
+#| label: imbalance-price-change-correlation
+#| message: false
+
+n_values <- 1:50  # up to 50 intervals ahead (5 seconds)
+
+cor_results <- rbindlist(lapply(n_values, function(n) {
+  price_change <- 
+    shift(binned_data$midprice, n = n, type = "lead") - binned_data$midprice
+  imbalance <- binned_data$avg_imbalance
+
+  # Condition on a price change actually occurring over the horizon
+  valid <- !is.na(price_change) & !is.na(imbalance) & price_change != 0
+
+  data.table(
+    n = n,
+    n_seconds = n * 0.1,
+    correlation = cor(imbalance[valid], price_change[valid]),
+    n_obs = sum(valid)
+  )
+}))
+
+knitr::kable(
+  head(cor_results, 10),
+  caption = "Imbalance vs. Future Price Change Correlation (First 10 Horizons)",
+  digits = 4
+)
+```
+
+```{r}
+#| label: plot-imbalance-price-change-correlation
+#| fig-width: 10
+#| fig-height: 5
+
+p6 <- ggplot(cor_results, aes(x = n_seconds, y = correlation)) +
+  geom_line(color = "steelblue", linewidth = 0.8) +
+  geom_point(color = "steelblue", size = 1.5) +
+  geom_hline(
+    yintercept = 0, linetype = "dashed", color = "black", linewidth = 0.3
+  ) +
+  labs(
+    title = paste0(
+      "Correlation Between Imbalance and Future Price",
+      " Change\n(Conditional on Price Change Occurring)"),
+    x = "Horizon (seconds)",
+    y = "Correlation"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 12, face = "bold"),
+    panel.grid.major = element_line(color = "gray90"),
+    panel.grid.minor = element_line(color = "gray95")
+  )
+
+print(p6)
+```
+
+
+
+### Markov chain models
+
+We build a simple markov chain model for order imbalance and show how to calibrate it to market data. Let $Z_t \in \{1, \ldots, K \}$ denote the order imbalance regime observed at time $t \in \{1, 2, \ldots, T\}$. 
+We assume that the order imbalance is described by a Markov chain with transition matrix $A$.
+
+### Maximum likelihood estimator
+
+Let $z_t$ denote a sequence of observations from the Markov chain $Z$.
+The maximum likelihood estimator for $A$ is known to be
+$$
+\hat{A} = \frac{n_{i,j}}{\sum^K_{j = 1} n_{i, j}},
+$$
+where $n_{i,j} = \sum_{t = 2}^T \chi_{Z_{t - 1} = i, Z_t = j}$, the number of observed transitions from regime $i$ to $j$.
+
+
+### Estimation {#sec-estimation}
+
+Using orderbook snapshots (volume at the touch) averaged over 100ms bins, and then smoothed with a 10s trailing moving average to damp the tick-by-tick flicker at the touch. We then bin the order imbalance into 5 equally spaced regimes, and find the following estimator for the transition matrix, where consecutive observations are $\Delta T = 0.1$s apart:
+
+```{r}
+#| label: smoothed-imbalance
+#| message: false
+
+setorder(binned_data, time_bin)
+
+# 100-bin (10s) trailing moving average of the 100ms-binned imbalance.
+binned_data[, smoothed_imbalance := zoo::rollmean(
+  avg_imbalance, k = 100, fill = NA, align = "right"
+)]
+
+binned_data[, smoothed_regime := cut(
+  smoothed_imbalance,
+  breaks = quantile_bounds,
+  labels = regime_labels,
+  include.lowest = TRUE
+)]
+```
+
+```{r}
+#| label: transition-matrix-mle
+#| message: false
+
+regime_seq <- na.omit(binned_data$smoothed_regime)
+
+transition_counts <- table(
+  from = head(regime_seq, -1),
+  to = tail(regime_seq, -1)
+)
+
+# MLE: row-normalize observed transition counts, A_hat[i, j] = n_ij /
+# sum_j n_ij.
+transition_matrix <- sweep(
+  unclass(transition_counts), 1, rowSums(transition_counts), FUN = "/"
+)
+
+knitr::kable(
+  transition_matrix,
+  caption = 
+    "Maximum Likelihood Estimate of the Order Imbalance Transition Matrix",
+  digits = 4
+)
+```
+
+### Discrete to continuous time Markov models
+
+To use the tools of continuous time stochastic control theory, we need to move from discrete to continuous models.
+There exists transformations from discrete to continuous time models and estimations.
+For a continuous time Markov model $\mathcal{Z} = (Z_T)$, with $Z_t \in \{1, \ldots, K \}$, it has a generator matrix $B$ which produces transition probabilities 
+$$
+\mathbb{P}(Z_t = j | Z_s = i) = [\exp (B(t - s))]_{i,j}, \quad t \ge s.
+$$
+
+The continuous time model can be estimated by the discrete time one by matching the estimated transition probability in the discrete setting from @sec-estimation. Specifically, we set
+$$
+\exp (\hat{B} \Delta T) = \hat{A}, \quad \hat{B} = \frac{1}{\Delta T} \log(\hat{A})
+$$
+
+```{r}
+#| label: generator-matrix-mle
+#| message: false
+
+# The discrete transition matrix A_hat (@sec-estimation) links
+# consecutive 100ms bins, so Delta T is 0.1 seconds.
+delta_t <- 0.1
+
+generator_matrix <- expm::logm(transition_matrix) / delta_t
+
+knitr::kable(
+  generator_matrix,
+  caption = paste0(
+    "Estimated Generator Matrix $\\hat{B}$ of", 
+    " the Continuous Time Order Imbalance Model"
+  ),
+  digits = 4
+)
+```
+
+Each row of a valid generator matrix should sum to zero. As a sanity check on the matrix logarithm:
+
+```{r}
+#| label: generator-matrix-check
+#| message: false
+
+print(paste(
+  "Max absolute row sum (should be ~0 for a valid generator):",
+  round(max(abs(rowSums(generator_matrix))), 6)
+))
+```
+
+The diagonal elements represent minus one times the sum of the rate of transition out of the corresponding regime, so we can see that the chain tends to flow out of ask-heavy regimes towards the slightly bid heavy regimes. 
+Once there it tends to flow back into the neutral regime at a slower rate.
+
+### Jointly modelling market orders
+
+We extend the continuous-time Markov model of the previous section to include the modelling of MO arrivals. We also note that the continuous-time approximation above has one important flaw -- the discrete-time model is estimated from average order imbalance over a 100ms window, therefore a continuous-time limit based on this estimate will not account properly for the interdependence of overlapping time windows.
+
+To address these issues, we assume that, conditional on being within a given regime $k$, market buy and sell orders arrive independently at the arrival times of independent Poisson processes with rates $\lambda_k^+$ and $\lambda_k^-$, respectively. That is, the counting processes $M^{\pm} = \{M_t^{\pm}\}_{0 \le t \le T}$ of market buy (sell) orders are doubly stochastic Poisson processes with activity rates $\Lambda_t^{\pm} = \lambda_{Z_t}^{\pm}$, where $\lambda_1^{\pm}, \lambda_2^{\pm}, \ldots, \lambda_K^{\pm}$ denote the activity rates in the various regimes. In addition, the order imbalance will be observed at every event, and the inter-arrival times of the events will play a role.
+
+The regime path is therefore reconstructed from the *instantaneous* imbalance at the touch, updated at every book event, rather than from a time-averaged imbalance. Since the feed is stamped to the millisecond, the path can only be resolved to 1ms, so we keep the last update within each millisecond and take the regime to be constant in between.
+
+```{r}
+#| label: event-time-epochs
+#| message: false
+
+# Regime at every book update, using the instantaneous imbalance at
+# the touch.
+bookTicker[, event_regime := cut(
+  imbalance,
+  breaks = quantile_bounds,
+  labels = regime_labels,
+  include.lowest = TRUE
+)]
+
+# The feed is stamped to the millisecond, so keep the last update in
+# each millisecond: this is the finest resolution at which the path is
+# identified.
+regime_path <- bookTicker[
+  transaction_time != shift(transaction_time, type = "lead", fill = -1),
+  .(t = as.numeric(transaction_time), regime = event_regime)
+]
+
+# Epochs are the maximal runs of a constant regime. tau is the
+# switching time that starts the epoch, tau_next the one that ends it.
+regime_path[, epoch_id := rleid(regime)]
+epochs <- regime_path[, .(regime = regime[1L], tau = t[1L]), by = epoch_id]
+
+epochs[, tau_next := shift(tau, type = "lead")]
+epochs[, to_regime := shift(regime, type = "lead")]
+epochs <- epochs[!is.na(tau_next)]   # drop the censored final epoch
+epochs[, dur := (tau_next - tau) / 1000]
+
+# Feed outages show up as isolated multi-minute epochs during which
+# nothing is observed. They would inflate the time-in-regime
+# denominators, so drop them together with the switch that terminates
+# them.
+outage_seconds <- 60
+n_outage <- sum(epochs$dur > outage_seconds)
+t_outage <- sum(epochs$dur[epochs$dur > outage_seconds])
+epochs <- epochs[dur <= outage_seconds]
+
+# Market orders. is_buyer_maker == FALSE means the buyer lifted the
+# ask, i.e. a market buy. Each MO is attached to the epoch prevailing
+# at its arrival.
+mo_events <- data.table(
+  t = as.numeric(trades$time),
+  side = fifelse(trades$is_buyer_maker, "sell", "buy")
+)
+setorder(mo_events, t)
+
+setkey(epochs, tau)
+mo_events[, ep_idx := epochs[.(mo_events$t), roll = TRUE, which = TRUE]]
+mo_events <- mo_events[!is.na(ep_idx)]
+mo_events[, `:=`(
+  regime = epochs$regime[ep_idx],
+  tau_next = epochs$tau_next[ep_idx]
+)]
+mo_events <- mo_events[t < tau_next]   # drops MOs inside discarded epochs
+
+rm(regime_path)
+invisible(gc())
+```
+
+```{r}
+#| label: fig-epochs
+#| fig-cap: "A two-second window of the regime path. Each step is an
+#|   epoch $[\\tau_r, \\tau_{r+1})$, delimited by the grey switching
+#|   times $\\tau_r$; triangles mark market buy (up) and market sell
+#|   (down) arrivals, which are Poisson with a regime-dependent rate
+#|   within each epoch."
+#| fig-width: 10
+#| fig-height: 4.5
+
+fig_start <- as.numeric(as.POSIXct("2024-08-05 12:00:00", tz = "UTC")) * 1000
+fig_seconds <- 2
+
+epoch_window <- epochs[tau >= fig_start & tau < fig_start + fig_seconds * 1000]
+mo_window <- mo_events[t >= fig_start & t < fig_start + fig_seconds * 1000]
+
+epoch_window[
+  , 
+  `:=`(t_rel = (tau - fig_start) / 1000, level = as.integer(regime))
+]
+mo_window[, t_rel := (t - fig_start) / 1000]
+
+p_epochs <- ggplot(epoch_window, aes(x = t_rel, y = level)) +
+  geom_vline(
+    xintercept = epoch_window$t_rel, color = "gray85", linewidth = 0.2
+  ) +
+  geom_step(direction = "hv", color = "gray30", linewidth = 0.4) +
+  geom_point(aes(color = regime), size = 1.8) +
+  geom_point(
+    data = mo_window,
+    aes(x = t_rel, y = 0.45, fill = side, shape = side),
+    inherit.aes = FALSE, size = 2.2, color = "black", stroke = 0.3
+  ) +
+  scale_color_manual(values = regime_colors, guide = "none") +
+  scale_fill_manual(
+    values = c(buy = "#1f77b4", sell = "#ff7f0e"),
+    labels = c(buy = "Market Buy", sell = "Market Sell"), name = "Arrivals"
+  ) +
+  scale_shape_manual(
+    values = c(buy = 24, sell = 25),
+    labels = c(buy = "Market Buy", sell = "Market Sell"), name = "Arrivals"
+  ) +
+  scale_y_continuous(
+    breaks = 1:5, labels = regime_labels, limits = c(0.3, 5.3)
+  ) +
+  labs(
+    title = "Regime Path, Switching Times and Market Order Arrivals",
+    x = "Seconds from 2024-08-05 12:00:00 UTC",
+    y = NULL
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 12, face = "bold"),
+    panel.grid.minor = element_blank()
+  )
+
+print(p_epochs)
+```
+
+Referring to @fig-epochs, let $\tau_1, \tau_2, \ldots, \tau_N$ denote the switching times of the regimes, i.e.\ the times at which the continuous-time Markov chain $Z$ changes (with generator matrix denoted by $\boldsymbol{B}$). We call the time interval $[\tau_r, \tau_{r+1})$ the $r^{th}$ epoch ($r = 0, \ldots, N$) with $\tau_{N+1} = T$ the end of the observation time horizon. Next, let $\{b_{r,1}, b_{r,2}, \ldots, b_{r,m_r}\}$ and $\{s_{r,1}, s_{r,2}, \ldots, s_{r,n_r}\}$ denote the arrival times of buy and sell MOs, respectively, during the $r^{th}$ epoch. Then, since arrivals within an epoch of buys and sells are i.i.d., the likelihood within the $r^{th}$-epoch is
+
+\begin{align*}
+L_r = \; & \underbrace{\lambda_{Z_{\tau_r}}^{+} e^{-\lambda_{Z_{\tau_r}}^{+} (b_{r,1} - b_{r,0})} \times \cdots \times \lambda_{Z_{\tau_r}}^{+} e^{-\lambda_{Z_{\tau_r}}^{+} (b_{r,m_r} - b_{r,m_r-1})}}_{\text{buy arrivals}} \\
+& \times \underbrace{e^{-\lambda_{Z_{\tau_r}}^{+} (\tau_{r+1} - b_{r,m_r})}}_{\text{no more buys}} \\
+& \times \underbrace{\lambda_{Z_{\tau_r}}^{-} e^{-\lambda_{Z_{\tau_r}}^{-} (s_{r,1} - s_{r,0})} \times \cdots \times \lambda_{Z_{\tau_r}}^{-} e^{-\lambda_{Z_{\tau_r}}^{-} (s_{r,n_r} - s_{r,n_r-1})}}_{\text{sell arrivals}} \\
+& \times \underbrace{e^{-\lambda_{Z_{\tau_r}}^{-} (\tau_{r+1} - s_{r,n_r})}}_{\text{no more sells}} \\
+= \; & \left(\lambda_{Z_{\tau_r}}^{+}\right)^{M_r^{+}} e^{-\lambda_{Z_{\tau_r}}^{+} (\tau_{r+1} - \tau_r)} \times \left(\lambda_{Z_{\tau_r}}^{-}\right)^{M_r^{-}} e^{-\lambda_{Z_{\tau_r}}^{-} (\tau_{r+1} - \tau_r)}.
+\end{align*}
+
+Here, we set $b_{r,0} = s_{r,0} = \tau_r$ for notational convenience. In the first equality, the first (second) line represents the likelihood of the sequence of buy (sell) orders. In each line, the first to second last terms, of the form $\lambda_{Z_{\tau_r}}^{\pm} e^{-\lambda_{Z_{\tau_r}}^{\pm} (t_{r,l} - t_{r,l-1})}$, represent the survival since the last order arrival, and then the arrival of an MO at time $t_r$. The last term in each line represents the probability that no event arrives between the last buy (sell) MO and the time at which the Markov chain switches. The second equality is obtained by re-arranging the terms and letting $M_r^{\pm}$ denote the number of buy and sell MOs which arrive in the $r^{th}$-epoch.
+
+The full likelihood is obtained by sewing together the within epoch likelihoods with the transition probability and the arrival of orders that occur after the last regime change, but before the sample ends. In all,
+
+\begin{align*}
+L = \; & L_0 \times \left[e^{\boldsymbol{B}\tau_1}\right]_{Z_{\tau_0} Z_{\tau_1}} \times \left[\boldsymbol{B}\right]_{Z_{\tau_0} Z_{\tau_1}} \times \\
+& \cdots \times L_{N-1} \times \left[e^{\boldsymbol{B}(\tau_N - \tau_{N-1})}\right]_{Z_{\tau_{N-1}} Z_{\tau_N}} \times \left[\boldsymbol{B}\right]_{Z_{\tau_{N-1}} Z_{\tau_N}}.
+\end{align*}
+
+Recall that $\tau_0 = 0$ and $\tau_{N+1} = T$ is the time of the last MO (buy or sell) after the last regime change. We in fact exclude the data from this last regime change to avoid some issues with censored data -- which render the maximisation analytically intractable, although it is still amenable to numerical methods. Next, recall that a continuous-time Markov chain generator matrix has rows which sum to zero, and the non-diagonal elements are non-negative. Hence, we write the generator matrix $\boldsymbol{B}$ as
+
+$$
+\boldsymbol{B} =
+\begin{pmatrix}
+-\Lambda_1 & \lambda_{12} & \lambda_{13} & \cdots & \lambda_{1K} \\
+\lambda_{21} & -\Lambda_2 & \lambda_{23} & \cdots & \lambda_{2K} \\
+\lambda_{31} & \lambda_{32} & -\Lambda_3 & \cdots & \lambda_{3K} \\
+\vdots & \vdots & & \ddots & \vdots \\
+\lambda_{K1} & \lambda_{K2} & \lambda_{K3} & \cdots & -\Lambda_K
+\end{pmatrix},
+$$
+
+where $\Lambda_i := \sum_{j \ne i}^{K} \lambda_{ij}$ represents the total rate of outflow from regime $i$. The survival probability of the time $\tau_i$ at which the chain transitions out of regime $i$ is given by
+
+$$
+\mathbb{P}(\tau_i > t \mid Z_s = i) = e^{-\Lambda_i (t-s)}, \qquad s \le t,
+$$
+
+and conditional on a transition occurring, the chain will switch from regime $i$ to regime $j$ with probability
+
+$$
+[\boldsymbol{P}]_{ij} = \frac{\lambda_{ij}}{\Lambda_i}, \qquad \text{for } i \ne j.
+$$
+
+Using this representation for the transition probability and expanding the likelihood above, we have
+
+\begin{align*}
+L = \prod_{n=1}^{N} \Bigg\{ \; & \left(\lambda_{Z_{\tau_{n-1}}}^{+}\right)^{M_{n-1}^{+}} e^{-\lambda_{Z_{\tau_{n-1}}}^{+} (\tau_n - \tau_{n-1})} \left(\lambda_{Z_{\tau_{n-1}}}^{-}\right)^{M_{n-1}^{-}} e^{-\lambda_{Z_{\tau_{n-1}}}^{-} (\tau_n - \tau_{n-1})} \\
+& \times \Lambda_{Z_{\tau_{n-1}}} e^{-\Lambda_{Z_{\tau_{n-1}}} (\tau_n - \tau_{n-1})} [\boldsymbol{P}]_{Z_{\tau_{n-1}} Z_{\tau_n}} \Bigg\}.
+\end{align*}
+
+Next, we re-arrange the terms by collecting like regimes and like transitions to obtain
+
+\begin{align*}
+L = \; & \left( \prod_{i=1}^{K} \left(\lambda_i^{+}\right)^{\hat{M}_i^{+}} e^{-\lambda_i^{+} \Delta \tau_i} \times \left(\lambda_i^{-}\right)^{\hat{M}_i^{-}} e^{-\lambda_i^{-} \Delta \tau_i} \right) \\
+& \times \left( \prod_{i,j=1}^{K} \left([\boldsymbol{P}]_{ij}\right)^{n_{ij}} \right) \times \left( \prod_{i=1}^{K} \Lambda_i^{n_i} e^{-\Lambda_i \Delta \tau_i} \right).
+\end{align*}
+
+Here, $\hat{M}_i^{\pm}$ denotes the number of market buy (sell) orders that occur while the chain is in regime $i$, $\Delta \tau_i$ denotes the total time the Markov chain spent in regime $i$, and $n_{ij}$ denotes the number of times the chain switches from $i$ to $j$. Since the times $\tau_1, \tau_2, \ldots, \tau_N$ are by definition the times at which the Markov chain switches regime, we must have $n_{ii} = 0$ and so $[\boldsymbol{P}]_{ii} = 0$.
+
+Finally, we optimise the likelihood over the parameters $\lambda_i^{\pm}$, $\boldsymbol{P}$ and $\Lambda_i$. Each of these optimisations can be carried out independently, and follow along the lines outlined in the earlier subsection. Here, we simply record the final results for the MLE estimators of the model parameters:
+
+$$
+\hat{\lambda}_i^{\pm} = \frac{\hat{M}_i^{\pm}}{\Delta \tau_i}, \qquad \hat{\Lambda}_i = \frac{\sum_{j \ne i} n_{ij}}{\Delta \tau_i}, \qquad \text{and} \qquad [\hat{\boldsymbol{P}}]_{ij} = \frac{n_{ij}}{\sum_{j \ne i} n_{ij}},
+$$ {#eq-joint-mle}
+
+from which we find that the MLE estimate of the off-diagonal elements of the generator matrix is
+
+$$
+\hat{\lambda}_{ij} = \frac{n_{ij}}{\Delta \tau_i}.
+$$ {#eq-generator-offdiag}
+
+The above results are similar to the simple Markov chain model, but now we also account for the regime specific arrival rate of market buy and sell orders.
+
+#### Estimation on SOL-PERP {#sec-joint-estimation}
+
+We apply @eq-joint-mle to the full month of August 2024. The sufficient statistics are the total time $\Delta \tau_i$ the chain spends in each regime, the number of switches $n_{ij}$ from $i$ to $j$, and the counts $\hat{M}_i^{\pm}$ of market buy and sell orders arriving while the chain sits in regime $i$.
+
+```{r}
+#| label: joint-mle-estimates
+#| message: false
+
+regime_time <- epochs[, .(
+  delta_tau = sum(dur),
+  n_epochs = .N,
+  mean_epoch = mean(dur)
+), keyby = regime]
+
+switch_counts <- table(from = epochs$regime, to = epochs$to_regime)
+
+mo_counts <- dcast(
+  mo_events[, .N, by = .(regime, side)],
+  regime ~ side,
+  value.var = "N",
+  fill = 0
+)
+
+joint_mle <- merge(regime_time, mo_counts, by = "regime")
+
+# lambda_i^{+/-} = M_i^{+/-} / delta_tau_i
+joint_mle[, `:=`(
+  lambda_buy = buy / delta_tau,
+  lambda_sell = sell / delta_tau,
+  time_share = delta_tau / sum(delta_tau),
+  Lambda = rowSums(switch_counts) / delta_tau
+)]
+
+# Off-diagonal entries lambda_ij = n_ij / delta_tau_i; diagonal is
+# -Lambda_i.
+B_joint <- sweep(unclass(switch_counts), 1, regime_time$delta_tau, FUN = "/")
+diag(B_joint) <- -rowSums(B_joint)
+dimnames(B_joint) <- list(regime_labels, regime_labels)
+
+# Switching probabilities [P]_ij = n_ij / sum_j n_ij, with zero
+# diagonal.
+P_joint <- sweep(unclass(switch_counts), 1, rowSums(switch_counts), FUN = "/")
+
+fnum <- function(x, d = 2) formatC(x, format = "f", digits = d, big.mark = "")
+```
+
+Two pieces of data handling are worth recording. First, as the derivation requires, the final epoch is dropped so that no censored observation enters the likelihood. Second, `r n_outage` epochs lasting longer than `r outage_seconds`s, accounting for `r fnum(t_outage, 0)`s in total, are feed outages rather than genuinely long-lived regimes; they are discarded along with the switch that ends them, since otherwise they would inflate $\Delta \tau_i$ and bias every rate downwards.
+
+```{r}
+#| label: tbl-joint-time
+#| tbl-cap: "Time spent in each regime and the switching rate out of
+#|   it."
+
+knitr::kable(
+  joint_mle[, .(
+    Regime = regime,
+    `$\\Delta\\tau_i$ (s)` = round(delta_tau),
+    `Time share` = round(time_share, 4),
+    Epochs = n_epochs,
+    `Mean epoch (s)` = round(mean_epoch, 4),
+    `$\\hat{\\Lambda}_i$ (s$^{-1}$)` = round(Lambda, 3)
+  )],
+  escape = FALSE,
+  format.args = list(big.mark = ",")
+)
+```
+
+```{r}
+#| label: tbl-joint-rates
+#| tbl-cap: "Market order counts and estimated regime-specific
+#|   arrival rates."
+
+knitr::kable(
+  joint_mle[, .(
+    Regime = regime,
+    `$\\hat{M}_i^{+}$` = buy,
+    `$\\hat{M}_i^{-}$` = sell,
+    `$\\hat{\\lambda}_i^{+}$` = round(lambda_buy, 3),
+    `$\\hat{\\lambda}_i^{-}$` = round(lambda_sell, 3),
+    `$\\hat{\\lambda}_i^{+}/\\hat{\\lambda}_i^{-}$` = 
+      round(lambda_buy / lambda_sell, 3)
+  )],
+  escape = FALSE,
+  format.args = list(big.mark = ",")
+)
+```
+
+```{r}
+#| label: tbl-joint-generator
+#| tbl-cap: "Estimated generator matrix $\\hat{B}$ from the joint
+#|   model, in units of s$^{-1}$."
+
+knitr::kable(B_joint, digits = 3)
+```
+
+```{r}
+#| label: fig-mo-rates
+#| fig-cap: "Estimated market order arrival rates by order imbalance
+#|   regime. Bid-heavy regimes draw market buys, ask-heavy regimes
+#|   draw market sells."
+#| fig-width: 10
+#| fig-height: 5
+
+rates_long <- melt(
+  joint_mle[
+    , 
+    .(regime, `Market Buys` = lambda_buy, `Market Sells` = lambda_sell)
+  ],
+  id.vars = "regime",
+  variable.name = "side",
+  value.name = "rate"
+)
+
+p_rates <- ggplot(
+  rates_long, aes(x = factor(regime, levels = regime_labels), 
+  y = rate, fill = side)
+) +
+  geom_col(position = "dodge", alpha = 0.85) +
+  scale_fill_manual(
+    values = c("Market Buys" = "#1f77b4", "Market Sells" = "#ff7f0e")
+  ) +
+  labs(
+    title = "Regime-Specific Market Order Arrival Rates",
+    x = "Regime",
+    y = "Arrival rate (market orders per second)",
+    fill = "Side"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 12, face = "bold"),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    panel.grid.major = element_line(color = "gray90"),
+    panel.grid.minor = element_line(color = "gray95")
+  )
+
+print(p_rates)
+```
+
+The arrival rates in @tbl-joint-rates and @fig-mo-rates are the main result. Unconditionally the month is close to balanced: `r fnum(sum(joint_mle$buy) / sum(joint_mle$delta_tau))` market buys and `r fnum(sum(joint_mle$sell) / sum(joint_mle$delta_tau))` market sells per second. Conditioning on the regime changes that picture entirely. In the most ask-heavy regime the sell rate is `r fnum(joint_mle$lambda_sell[1])` against a buy rate of `r fnum(joint_mle$lambda_buy[1])`, and in the most bid-heavy regime the buy rate is `r fnum(joint_mle$lambda_buy[5])` against a sell rate of `r fnum(joint_mle$lambda_sell[5])`. The ratio $\hat{\lambda}_i^{+}/\hat{\lambda}_i^{-}$ rises monotonically from `r fnum(joint_mle$lambda_buy[1] / joint_mle$lambda_sell[1])` to `r fnum(joint_mle$lambda_buy[5] / joint_mle$lambda_sell[5])` across the five regimes, so order imbalance is indeed a good predictor of the direction of order flow.
+
+The shape of that dependence matters as much as its strength. The buy rate is essentially flat across the three left-most regimes and the sell rate is essentially flat across the three right-most ones; nearly all of the signal comes from the two extreme regimes, where the rate of the *aggressive* side roughly doubles rather than the passive side thinning out. In other words the imbalance is informative mainly when it is severe, which is precisely when a market maker quoting the thin side is most exposed.
+
+The generator in @tbl-joint-generator describes a much faster chain than the one in @sec-estimation. Mean holding times $1/\hat{\Lambda}_i$ range from `r fnum(min(1 / joint_mle$Lambda), 3)`s to `r fnum(max(1 / joint_mle$Lambda), 3)`s, i.e. the chain switches roughly `r fnum(sum(joint_mle$n_epochs) / sum(joint_mle$delta_tau), 1)` times per second. The extreme regimes are about twice as persistent as the central ones, and the chain spends more time in them (`r fnum(100 * joint_mle$time_share[1], 1)`% and `r fnum(100 * joint_mle$time_share[5], 1)`% of the sample) than in the neutral regime (`r fnum(100 * joint_mle$time_share[3], 1)`%): at the touch, the book is more often lopsided than balanced. Unlike a single equity name on a single day, $\hat{B}$ here is close to symmetric under the reflection $i \mapsto K + 1 - i$, so over a month there is no systematic pull towards a bid- or ask-heavy regime. Nor are switches confined to neighbouring regimes: out of the most ask-heavy regime only `r fnum(100 * P_joint[1, 2], 1)`% of switches go to the adjacent one, while `r fnum(100 * (P_joint[1, 4] + P_joint[1, 5]), 1)`% jump straight across to a bid-heavy regime.
+
+Comparing $\hat{B}$ with the estimate in @sec-estimation, the overall rates differ by roughly two orders of magnitude: holding times there are `r fnum(min(-1 / diag(generator_matrix)), 1)`s to `r fnum(max(-1 / diag(generator_matrix)), 1)`s against fractions of a second here. That gap is an artefact of the smoothing, not a property of the market. The earlier estimate is built from a 10s trailing average of the 100ms-binned imbalance, and a moving average of that length cannot jump between regimes, which is why the resulting transition matrix is almost tridiagonal and so persistent. It also shows the cost of the embedding step: the matrix logarithm returns `r sum(generator_matrix[row(generator_matrix) != col(generator_matrix)] < 0)` negative off-diagonal entries, the most negative being `r fnum(min(generator_matrix[row(generator_matrix) != col(generator_matrix)]), 4)`, so that $\hat{B}$ is not a valid generator, whereas @eq-generator-offdiag delivers a valid one by construction. The event-time estimate is the one to use for a controller reacting at the millisecond scale; the smoothed estimate describes a slower, filtered version of the same signal.
+
+### Modelling price jumps
+
+Up to this point, we have been concerned with understanding how order imbalance influences the rate of arrival of MOs. An important and interesting related question is to determine the distribution of price changes conditional on the arrival of buy and sell MOs and the order imbalance regime prior to the arrival of that MO. To answer this question, we record the time of each MO and compute the midprice change 1s afterwards, conditional on the order imbalance regime when split into 5 equal bins with knots at $\{-1, -\tfrac{3}{5}, -\tfrac{1}{5}, +\tfrac{1}{5}, +\tfrac{3}{5}, +1\}$, as in the previous section. The corresponding states and imbalance $\rho$ is given by
+
+$$
+Z =
+\left\{
+\begin{array}{@{}lll@{}}
+-2, & \rho \in \left[-1, -\tfrac{3}{5}\right], & \text{sell-heavy}, \\
+-1, & \rho \in \left[-\tfrac{3}{5}, -\tfrac{1}{5}\right), & \text{sell-bias}, \\
+0, & \rho \in \left[-\tfrac{1}{5}, +\tfrac{1}{5}\right), & \text{neutral}, \\
++1, & \rho \in \left[+\tfrac{1}{5}, +\tfrac{3}{5}\right), & \text{buy-bias}, \\
++2, & \rho \in \left[+\tfrac{3}{5}, +1\right], & \text{buy-heavy}.
+\end{array}
+\right.
+$$
+
+Note that $Z$ is a relabelling of the regimes used in the previous sections, $Z = i - 3$ for regime $i = 1, \ldots, 5$, so that $Z = -2$ is the ask-heavy regime and $Z = +2$ the bid-heavy one.
+
+The state $Z$ and the reference midprice are taken from the most recent book update *strictly before* the MO's millisecond: an update stamped in the same millisecond as the trade may already reflect the trade itself, which would let the MO leak into the state we are conditioning on. The post-MO midprice is the most recent update at or before $t + 1000$ms. Everything is measured in ticks of \$0.001.
+
+```{r}
+#| label: price-jump-events
+#| message: false
+
+TICK <- 0.001
+
+# One row per millisecond of book updates, for the rolling joins
+# below.
+book_mid <- bookTicker[
+  transaction_time != shift(transaction_time, type = "lead", fill = -1),
+  .(t = as.numeric(transaction_time), midprice, imbalance)
+]
+setkey(book_mid, t)
+
+mo_jumps <- data.table(
+  t = as.numeric(trades$time),
+  price = trades$price,
+  side = fifelse(trades$is_buyer_maker, "sell", "buy")
+)
+setorder(mo_jumps, t)
+
+# Roll each timestamp back to the most recent book update at or before
+# it.
+i_pre <- book_mid[.(mo_jumps$t - 1), roll = TRUE, which = TRUE]
+i_before <- book_mid[.(mo_jumps$t - 1000), roll = TRUE, which = TRUE]
+i_at <- book_mid[.(mo_jumps$t), roll = TRUE, which = TRUE]
+i_100ms <- book_mid[.(mo_jumps$t + 100), roll = TRUE, which = TRUE]
+i_1s <- book_mid[.(mo_jumps$t + 1000), roll = TRUE, which = TRUE]
+
+mo_jumps[, `:=`(
+  rho = book_mid$imbalance[i_pre],
+  mid_pre = book_mid$midprice[i_pre],
+  mid_before = book_mid$midprice[i_before],
+  mid_at = book_mid$midprice[i_at],
+  mid_100ms = book_mid$midprice[i_100ms],
+  mid_1s = book_mid$midprice[i_1s]
+)]
+mo_jumps <- mo_jumps[complete.cases(mo_jumps)]
+
+# Regime prior to the MO, on the knots of the previous sections: Z =
+# -2, ..., +2.
+mo_jumps[, Z := as.integer(
+  cut(rho, breaks = quantile_bounds, include.lowest = TRUE)
+) - 3L]
+
+# Midprice change over the second following the MO, in ticks.
+mo_jumps[, dS := (mid_1s - mid_pre) / TICK]
+
+# Unconditional benchmark: the same 1s change sampled on a regular 1s
+# grid.
+grid_t <- seq(min(book_mid$t), max(book_mid$t) - 1000, by = 1000)
+grid_dS <- (
+  book_mid$midprice[book_mid[.(grid_t + 1000), roll = TRUE, which = TRUE]] -
+  book_mid$midprice[book_mid[.(grid_t), roll = TRUE, which = TRUE]]
+) / TICK
+grid_dS <- grid_dS[!is.na(grid_dS)]
+
+median_spread <- 2 * median(bookTicker$half_spread) / TICK
+
+rm(book_mid, i_pre, i_before, i_at, i_100ms, i_1s)
+invisible(gc())
+```
+
+SOL-PERP is not a \$33 stock quoted in cents, and the units matter for how the table is built. The tick is \$0.001 and the median quoted spread is `r fnum(median_spread, 0)` tick, but the midprice is far more volatile than that over a one-second horizon: sampled on a regular one-second grid, the central 90% of midprice changes spans `r fnum(quantile(grid_dS, 0.05), 0)` to `r fnum(quantile(grid_dS, 0.95), 0)` ticks. A row per tick would run to hundreds of rows, so we bucket $\Delta S$ instead, symmetrically about zero.
+
+```{r}
+#| label: price-jump-buckets
+#| message: false
+
+jump_levels <- c(
+  "$\\Delta S \\le -20$", "$-20 < \\Delta S \\le -5$", "$-5 < \\Delta S < 0$",
+  "$\\Delta S = 0$",
+  "$0 < \\Delta S < 5$", "$5 \\le \\Delta S < 20$", "$\\Delta S \\ge 20$"
+)
+
+mo_jumps[, dS_bucket := factor(fcase(
+  dS <= -20, jump_levels[1],
+  dS <= -5, jump_levels[2],
+  dS <  0, jump_levels[3],
+  dS == 0, jump_levels[4],
+  dS <  5, jump_levels[5],
+  dS <  20, jump_levels[6],
+  default = jump_levels[7]
+), levels = jump_levels)]
+
+# One panel per MO side: the conditional distribution of dS down the
+# rows, with the arrival rate of that side from the joint model on
+# top.
+jump_panel <- function(mo_side, lambda, lambda_label) {
+  d <- mo_jumps[side == mo_side]
+  p <- prop.table(table(d$dS_bucket, d$Z), margin = 2)
+  cells <- formatC(as.matrix(p), format = "f", digits = 3)
+  cells[as.matrix(p) == 0] <- "--"
+  out <- rbind(formatC(lambda, format = "f", digits = 3), cells)
+  rownames(out) <- c(lambda_label, jump_levels)
+  colnames(out) <- paste0("$Z=", c("-2", "-1", "0", "+1", "+2"), "$")
+  out
+}
+```
+
+```{r}
+#| label: tbl-jump-buy
+#| tbl-cap: "Distribution of the midprice change 1s after a market
+#|   **buy**, in ticks, conditional on the order imbalance regime.
+#|   Columns sum to one; $\\hat{\\lambda}^{+}$ is the arrival rate
+#|   from @tbl-joint-rates."
+
+knitr::kable(jump_panel(
+  "buy", joint_mle$lambda_buy, "$\\hat{\\lambda}^{+}$"
+  ), 
+  escape = FALSE
+)
+```
+
+```{r}
+#| label: tbl-jump-sell
+#| tbl-cap: "Distribution of the midprice change 1s after a market
+#|   **sell**, in ticks, conditional on the order imbalance regime.
+#|   Columns sum to one; $\\hat{\\lambda}^{-}$ is the arrival rate
+#|   from @tbl-joint-rates."
+
+knitr::kable(jump_panel(
+  "sell", joint_mle$lambda_sell, "$\\hat{\\lambda}^{-}$"), 
+  escape = FALSE
+)
+```
+
+The first thing to note is what conditioning on an MO does to the atom at zero. On the one-second grid the midprice is unchanged `r fnum(100 * mean(grid_dS == 0), 1)`% of the time; one second after a market order it is unchanged in only `r fnum(100 * mean(mo_jumps$dS == 0), 1)`% of cases. Market orders arrive when the price is moving, and they are almost never followed by a flat second.
+
+```{r}
+#| label: tbl-jump-summary
+#| tbl-cap: "Median midprice change 1s after a market order and the
+#|   sign probabilities, by side and regime."
+
+jump_summary <- mo_jumps[, .(
+  n = .N,
+  median_dS = median(dS),
+  p_up = round(mean(dS > 0), 3),
+  p_flat = round(mean(dS == 0), 3),
+  p_down = round(mean(dS < 0), 3)
+), keyby = .(side, Z)]
+
+knitr::kable(
+  jump_summary,
+  escape = FALSE,
+  col.names = 
+    c("Side", "$Z$", "MOs", "Median $\\Delta S$",
+    "$P(\\Delta S > 0)$", "$P(\\Delta S = 0)$", "$P(\\Delta S < 0)$"
+  ),
+  format.args = list(big.mark = ",")
+)
+```
+
+```{r}
+#| label: fig-jump-prob
+#| fig-cap: "Probability that the midprice is higher 1s after a
+#|   market order, by side and order imbalance regime. The dashed
+#|   line is the unconditional probability of an up move, given the
+#|   price moved at all."
+#| fig-width: 10
+#| fig-height: 5
+
+p_up_uncond <- mean(grid_dS > 0) / mean(grid_dS != 0)
+
+p_jump <- ggplot(jump_summary, aes(x = Z, y = p_up, color = side)) +
+  geom_hline(
+    yintercept = p_up_uncond, linetype = "dashed", color = "gray40", 
+    linewidth = 0.4
+  ) +
+  geom_line(linewidth = 0.8) +
+  geom_point(size = 2.5) +
+  scale_color_manual(
+    values = c(buy = "#1f77b4", sell = "#ff7f0e"),
+    labels = c(buy = "Market Buys", sell = "Market Sells"),
+    name = "Side"
+  ) +
+  scale_x_continuous(breaks = -2:2) +
+  scale_y_continuous(limits = c(0, 1)) +
+  labs(
+    title = "Probability of an Up Move 1s After a Market Order",
+    x = "Order imbalance regime  Z",
+    y = expression(P(Delta * S > 0))
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 12, face = "bold"),
+    panel.grid.minor = element_blank()
+  )
+
+print(p_jump)
+```
+
+The regime dependence is the point of the exercise, and @fig-jump-prob shows it cleanly. Holding the side of the MO fixed, a more bid-heavy book shifts the whole distribution of $\Delta S$ upwards. After a market buy, the probability of an up move rises from `r fnum(jump_summary[side == "buy" & Z == -2]$p_up)` in the ask-heavy regime to `r fnum(jump_summary[side == "buy" & Z == 2]$p_up)` in the bid-heavy one, and the median change rises from `r fnum(jump_summary[side == "buy" & Z == -2]$median_dS, 1)` to `r fnum(jump_summary[side == "buy" & Z == 2]$median_dS, 1)` ticks. After a market sell, the probability of an up move rises over the same range from `r fnum(jump_summary[side == "sell" & Z == -2]$p_up)` to `r fnum(jump_summary[side == "sell" & Z == 2]$p_up)`, and the median change from `r fnum(jump_summary[side == "sell" & Z == -2]$median_dS, 1)` to `r fnum(jump_summary[side == "sell" & Z == 2]$median_dS, 1)` ticks — a sell into a bid-heavy book does much less damage than the same sell into an already ask-heavy one. This runs in the same direction as the arrival rates of @sec-joint-estimation: imbalance predicts both who trades next and what the price does afterwards.
+
+The medians and the sign probabilities are monotone in $Z$, but the conditional *means* are not: they are essentially flat across regimes, `r fnum(mo_jumps[side == "buy", mean(dS), by = Z][order(Z)]$V1[1], 1)` ticks at $Z=-2$ against `r fnum(mo_jumps[side == "buy", mean(dS), by = Z][order(Z)]$V1[5], 1)` ticks at $Z=+2$ for buys. The extreme regimes coincide with volatile bursts, so their tails are fat in both directions and dominate the average. The centre of the distribution is where the imbalance signal lives.
+
+```{r}
+#| label: tbl-jump-horizons
+#| tbl-cap: "Median midprice move around a market order, in ticks,
+#|   measured from the last book update before it. The last column is
+#|   where the trade itself printed relative to that midprice."
+
+jump_horizons <- mo_jumps[, .(
+  `1s before` = median((mid_pre - mid_before) / TICK),
+  `At arrival` = median((mid_at - mid_pre) / TICK),
+  `+100ms` = median((mid_100ms - mid_pre) / TICK),
+  `+1s` = median((mid_1s - mid_pre) / TICK),
+  `Print vs. mid` = median((price - mid_pre) / TICK)
+), keyby = .(Side = side)]
+
+knitr::kable(jump_horizons, digits = 1)
+```
+
+Three caveats belong with these numbers, all visible in @tbl-jump-horizons. First, trades print a long way through the quoted book: a buy goes off a median `r fnum(jump_horizons[Side == "buy"][["Print vs. mid"]], 1)` ticks, and a mean of `r fnum(mo_jumps[side == "buy", mean((price - mid_pre) / TICK)], 1)` ticks, above the prevailing midprice in a market whose median spread is `r fnum(median_spread, 0)` tick. The quote feed lags the trade feed, so part of what follows a print is simply the book catching up to a price the trade has already revealed. Second, the midprice had already moved in the aggressor's direction during the second *before* the trade, by a median `r fnum(jump_horizons[Side == "buy"][["1s before"]], 1)` ticks for buys, so MOs are arriving mid-move rather than starting one. Third, most of the one-second move is over almost immediately: `r fnum(100 * mo_jumps[side == "buy", mean(mid_100ms - mid_pre) / mean(mid_1s - mid_pre)], 0)`% of the mean move after a buy is realised within 100ms.
+
+Taken together, $\Delta S$ measured this way is the price shift *associated with* the arrival of an MO — impact, the quote feed catching up, and the continuation of a move already underway — and not a forecast that could be traded from the moment of the print. What the lag does not contaminate is the comparison across regimes at a fixed side, since it applies equally in every column: that comparison is the content of @tbl-jump-buy and @tbl-jump-sell.
+
+
+# Daily features
+
+# Optimal liquidation
+
+## Optimisation problem
+
+### Simulations
